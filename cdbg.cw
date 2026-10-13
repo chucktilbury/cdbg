@@ -36,6 +36,7 @@ class Cdbg {
     Gtk.Button nextButton
     Gtk.Button finishButton
     Gtk.Button interruptButton
+    Gtk.Button restartButton
     Process.AsyncProcess process
     Process.OutputDecoder output
     Process.OutputDecoder errors
@@ -50,6 +51,7 @@ class Cdbg {
     bool loaded
     bool running
     bool hasRun
+    bool restarting
     String pending
     String executable
     String temporary
@@ -107,6 +109,7 @@ class Cdbg {
         Gtk.Box control = Gtk.Box(Gtk.Box.HORIZONTAL, 6)
         layout.append(control)
         runButton = button(control, "Run / Continue", _self().resume)
+        restartButton = button(control, "Restart", _self().restart)
         stepButton = button(control, "Step Into", _self().stepInto)
         nextButton = button(control, "Step Over", _self().stepOver)
         finishButton = button(control, "Step Out", _self().stepOut)
@@ -176,6 +179,7 @@ class Cdbg {
         nextButton.setSensitive(ready && hasRun)
         finishButton.setSensitive(ready && hasRun)
         interruptButton.setSensitive(loaded && running)
+        restartButton.setSensitive(loaded && active == null && requests.length == 0 && !restarting)
     }
     void log(String text) {
         String current = console.text()
@@ -236,6 +240,7 @@ class Cdbg {
         loaded = false
         running = false
         hasRun = false
+        restarting = false
         mode = 0
         cleanup()
         controls()
@@ -255,6 +260,7 @@ class Cdbg {
         inferiorPid = ""
         location = ""
         executable = System.FileSystem().absolutePath(target.text())
+        source.setText("")
         if (!System.FileSystem().isFile(executable)) { fail("Target is not a local file")
             return }
         output = Process.OutputDecoder()
@@ -267,6 +273,7 @@ class Cdbg {
         breaks.setText("")
         if (executable.endsWith(".cw")) {
             String input = executable
+            showSource(input, "")
             temporary = System.FileSystem().tempDir()
             if (temporary.equals("")) { fail("Could not create a temporary compilation directory")
                 return }
@@ -310,6 +317,7 @@ class Cdbg {
             i = i + 1
         }
         enqueue(args, "loaded", "")
+        enqueue("-file-list-exec-source-files", "sources", "")
     }
     void enqueue(String command, String purpose, String expression) {
         if (requests.length >= 256) { fail("GDB request queue is full")
@@ -343,6 +351,24 @@ class Cdbg {
         String command = "-exec-run"
         if (hasRun) { command = "-exec-continue" }
         enqueue(command, "execute", "")
+    }
+    void restart() {
+        if (!loaded || active != null || requests.length > 0 || restarting) {
+            fail("Wait for GDB to be ready before restarting")
+            return
+        }
+        restarting = true
+        if (running) { enqueue("-exec-interrupt", "restart-interrupt", "") }
+        else { restartStopped() }
+        controls()
+    }
+    void restartStopped() {
+        if (hasRun) {
+            enqueue("-interpreter-exec console \"kill\"", "restart-kill", "")
+        } else {
+            restarting = false
+            enqueue("-exec-run", "execute", "")
+        }
     }
     void stepInto() { if (stopped()) { enqueue("-exec-step", "execute", "") } }
     void stepOver() { if (stopped()) { enqueue("-exec-next", "execute", "") } }
@@ -428,6 +454,9 @@ class Cdbg {
         String line = frame.field("line").text
         location = format("{}:{} ({})", path, line, frame.field("func").text)
         status.setText(format("Stopped: {}", location))
+        showSource(path, line)
+    }
+    void showSource(String path, String line) {
         if (!path.equals("") && System.FileSystem().isFile(path)) {
             try {
                 System.File file = System.File(path, "r")
@@ -453,6 +482,7 @@ class Cdbg {
             return
         }
         if (record.result.equals("error")) {
+            if (done.purpose.startsWith("restart-")) { restarting = false }
             String message = record.data.field("msg").text
             if (done.purpose.equals("watch")) {
                 watches.setText(format("{}{} = <{}>\n", watches.text(), done.expression, message))
@@ -471,6 +501,31 @@ class Cdbg {
         if (done.purpose.equals("loaded")) {
             loaded = true
             status.setText("Loaded. Add breakpoints, then Run.")
+        }
+        if (done.purpose.equals("sources") && source.text().equals("")) {
+            MiValue files = record.data.field("files")
+            String candidate = ""
+            int i = 0
+            while (i < files.values.length) {
+                MiValue file = files.values[i] as MiValue
+                String path = file.field("fullname").text
+                if (path.equals("")) { path = file.field("file").text }
+                if (System.FileSystem().isFile(path)) {
+                    if (candidate.equals("")) { candidate = path }
+                    if (path.endsWith(".cw") && !path.contains("/modules/") &&
+                        !path.contains("/builtin/")) { candidate = path
+                        break }
+                }
+                i = i + 1
+            }
+            if (!candidate.equals("")) { showSource(candidate, "") }
+            else { source.setText("Source unavailable: no readable source files in debug information") }
+        }
+        if (done.purpose.equals("restart-kill")) {
+            hasRun = false
+            running = false
+            restarting = false
+            enqueue("-exec-run", "execute", "")
         }
         if (record.result.equals("running")) {
             hasRun = true
@@ -552,6 +607,12 @@ class Cdbg {
         if (parsed.kind.equals("*") && parsed.result.equals("stopped")) {
             running = false
             String reason = parsed.data.field("reason").text
+            if (restarting) {
+                if (reason.startsWith("exited")) { hasRun = false }
+                restartStopped()
+                controls()
+                return
+            }
             if (reason.startsWith("exited")) {
                 hasRun = false
                 locals.setText("Target exited")
