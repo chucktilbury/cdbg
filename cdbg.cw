@@ -18,21 +18,35 @@ class DebugRequest {
 }
 
 class DebugSource {
+    DebugSource _self()
     String path
     GtkSource.View view
     Gtk.ScrolledWindow scroll
     int centeredStop
+    callback<void(DebugSource)> closeAction
     DebugSource(String filename, GtkSource.View text, Gtk.ScrolledWindow container) {
         path = filename
         view = text
         scroll = container
     }
+    void close() { closeAction(_self()) }
 }
+DebugSource DebugSource._self() from "cwhip_gtk_self"
 
 class Cdbg {
     Cdbg _self()
     Gtk.Window window
-    Gtk.Entry target
+    Gtk.MenuBar menu
+    int loadItem
+    int openItem
+    int quitItem
+    int findItem
+    Gtk.FileDialog fileDialog
+    Gtk.TransientWindow findWindow
+    Gtk.Entry findEntry
+    Gtk.Label findStatus
+    String targetPath
+    String sourceText
     Gtk.Entry breakpoint
     Gtk.Entry breakpointNumber
     Gtk.Entry watch
@@ -87,6 +101,8 @@ class Cdbg {
         failure = ""
         inferiorPid = ""
         location = ""
+        targetPath = ""
+        sourceText = ""
         sourceFiles = []
     }
     Gtk.Button button(Gtk.Box row, String title, callback<void()> action) {
@@ -119,13 +135,34 @@ class Cdbg {
         window.onCloseRequest(_self().closeRequested)
         Gtk.Box layout = Gtk.Box(Gtk.Box.VERTICAL, 6)
         window.setChild(layout)
-        Gtk.Box launchRow = Gtk.Box(Gtk.Box.HORIZONTAL, 6)
-        layout.append(launchRow)
-        launchRow.append(Gtk.Label("Source (.cw) or executable"))
-        target = Gtk.Entry("")
-        target.setHExpand(true)
-        launchRow.append(target)
-        button(launchRow, "Load", _self().launch)
+        menu = Gtk.MenuBar()
+        layout.append(menu)
+        int fileMenu = menu.addMenu("File")
+        loadItem = menu.addItem(fileMenu, "Load Executable...", _self().chooseExecutable)
+        openItem = menu.addItem(fileMenu, "Open Source Code...", _self().chooseSource)
+        menu.addSeparator(fileMenu)
+        quitItem = menu.addItem(fileMenu, "Quit", _self().quit)
+        int searchMenu = menu.addMenu("Search")
+        findItem = menu.addItem(searchMenu, "Find...", _self().showFind)
+        window.bindShortcut("<Control>q", _self().quit)
+        window.bindShortcut("<Control>f", _self().showFind)
+        findWindow = Gtk.TransientWindow("Find")
+        findWindow.setDefaultSize(420, 100)
+        findWindow.setTransientFor(window)
+        findWindow.setVisible(false)
+        findWindow.onCloseRequest(_self().findCloseRequested)
+        Gtk.Box findLayout = Gtk.Box(Gtk.Box.VERTICAL, 6)
+        findWindow.setChild(findLayout)
+        findEntry = Gtk.Entry("")
+        findEntry.setHExpand(true)
+        findLayout.append(findEntry)
+        Gtk.Box findButtons = Gtk.Box(Gtk.Box.HORIZONTAL, 6)
+        findLayout.append(findButtons)
+        button(findButtons, "Find Next", _self().findNext)
+        button(findButtons, "Find Previous", _self().findPrevious)
+        button(findButtons, "Close", _self().closeFind)
+        findStatus = Gtk.Label("")
+        findLayout.append(findStatus)
         Gtk.Box control = Gtk.Box(Gtk.Box.HORIZONTAL, 6)
         layout.append(control)
         runButton = button(control, "Run / Continue", _self().resume)
@@ -162,11 +199,13 @@ class Cdbg {
         layout.append(body)
         source = pane()
         sourceTabs = Gtk.Notebook()
+        sourceTabs.setBorderedTabs()
         sourceTabs.setHExpand(true)
         sourceTabs.setVExpand(true)
-        sourceTabs.setVisible(false)
         body.append(sourceTabs)
+        sourceMessage("No source loaded. Use File > Load Executable... or File > Open Source Code...")
         Gtk.Notebook inspection = Gtk.Notebook()
+        inspection.setBorderedTabs()
         inspection.setHExpand(true)
         inspection.setVExpand(true)
         body.append(inspection)
@@ -187,15 +226,136 @@ class Cdbg {
         controls()
         window.present()
         if (System.Process().argc() > 1) {
-            target.setText(System.Process().arg(1))
             int i = 2
             if (System.Process().arg(i).equals("--")) { i = i + 1 }
             while (i < System.Process().argc()) {
                 arguments.append(System.Process().arg(i))
                 i = i + 1
             }
-            launch()
+            loadTarget(System.Process().arg(1))
         }
+    }
+    String initialPath() {
+        if (!targetPath.equals("")) { return System.FileSystem().absolutePath(targetPath) }
+        if (source != null) {
+            int i = 0
+            while (i < sourceFiles.length) {
+                DebugSource file = sourceFiles[i] as DebugSource
+                if (file.view == source && !file.path.equals("")) { return file.path }
+                i = i + 1
+            }
+        }
+        return ""
+    }
+    void chooseExecutable() {
+        if (fileDialog != null && fileDialog.pending()) { return }
+        fileDialog = Gtk.FileDialog(window, false, initialPath(), _self().executableChosen)
+    }
+    void chooseSource() {
+        if (fileDialog != null && fileDialog.pending()) { return }
+        fileDialog = Gtk.FileDialog(window, false, initialPath(), _self().sourceChosen)
+    }
+    void executableChosen(String path) {
+        fileDialog = null
+        if (!path.equals("")) { loadTarget(path) }
+    }
+    void sourceChosen(String path) {
+        fileDialog = null
+        if (!path.equals("")) { openSource(path) }
+    }
+    void quit() {
+        if (window != null && !window.disposed()) { window.close() }
+    }
+    // Load Executable: a fresh GDB session with breakpoints cleared, prepared
+    // but not run. A .cw path (command line) is compiled with -g first. A path
+    // that is not a regular file is rejected before the current session or
+    // source tabs are touched.
+    void loadTarget(String path) {
+        String absolute = System.FileSystem().absolutePath(path)
+        if (absolute.equals("")) { absolute = path }
+        if (path.equals("") || !System.FileSystem().isFile(absolute)) {
+            loadFailure(format("Target is not a local file: {}", absolute))
+            return
+        }
+        targetPath = path
+        launch()
+    }
+    // Open Source Code: shows a text file read-only without compiling it or
+    // touching the debug session. Binary, invalid UTF-8 and executable files
+    // are rejected with an error dialog and no tab change.
+    bool openSource(String path) {
+        String absolute = System.FileSystem().absolutePath(path)
+        if (absolute.equals("")) { absolute = path }
+        if (!System.FileSystem().isFile(absolute)) {
+            loadFailure(format("Source is not a local file: {}", absolute))
+            return false
+        }
+        if (executableImage(absolute)) {
+            loadFailure(format("{} is an executable, not source code; use File > Load Executable...",
+                absolute))
+            return false
+        }
+        return showSource(absolute, "")
+    }
+    bool executableImage(String path) {
+        System.File file = null
+        try {
+            file = System.File(path, "rb")
+            String magic = file.read(4)
+            file.close()
+            return (magic.length == 4 && magic.byteAt(0) == 127u && magic.byteAt(1) == 69u &&
+                magic.byteAt(2) == 76u && magic.byteAt(3) == 70u)
+        } except(Exception) {
+            if (file != null && file.isOpen()) { file.close() }
+        }
+        return false
+    }
+    void showFind() {
+        if (findWindow == null || findWindow.disposed()) { return }
+        findStatus.setText("")
+        if (source != null && source.hasSelection()) {
+            String selected = source.selectedText()
+            if (!selected.contains("\n")) { findEntry.setText(selected) }
+        }
+        findWindow.setVisible(true)
+        findWindow.present()
+        findEntry.focus()
+    }
+    void closeFind() {
+        if (findWindow != null && !findWindow.disposed()) { findWindow.setVisible(false) }
+    }
+    bool findCloseRequested() {
+        findWindow.setVisible(false)
+        return true
+    }
+    void findNext() { find(false) }
+    void findPrevious() { find(true) }
+    void find(bool backward) {
+        String query = findEntry.text()
+        if (query.equals("")) { findStatus.setText("Enter text to find")
+            return }
+        if (source == null || currentSource() == null) {
+            findStatus.setText("No source file is open")
+            return
+        }
+        int before = source.line()
+        int options = 0
+        if (backward) { options = GtkSource.View.BACKWARD }
+        if (!source.findWith(query, options)) {
+            findStatus.setText(format("Not found: {}", query))
+            return
+        }
+        int after = source.line()
+        if ((!backward && after < before) || (backward && after > before)) {
+            findStatus.setText(format("Wrapped: {} at line {}", query, after))
+        } else { findStatus.setText(format("Found: {} at line {}", query, after)) }
+    }
+    DebugSource currentSource() {
+        int page = sourceTabs.currentPage()
+        if (page < 0 || page >= sourceFiles.length) { return null }
+        DebugSource file = sourceFiles[page] as DebugSource
+        if (file.path.equals("")) { return null }
+        return file
     }
     void controls() {
         if (window == null || window.disposed()) { return }
@@ -244,17 +404,24 @@ class Cdbg {
             Gtk.AlertDialog().show(window, "Could not load file", text)
         }
     }
+    // The source notebook always keeps at least one page: a message page
+    // (path "") stands in when no file tab is open, so the area never hides.
     void clearSources() {
-        sourceTabs.setVisible(false)
+        sourceMessage("Loading source...")
+        list kept = []
         int i = 0
         while (i < sourceFiles.length) {
             DebugSource file = sourceFiles[i] as DebugSource
-            sourceTabs.remove(file.scroll)
-            file.scroll.dispose()
+            if (file.path.equals("")) { kept.append(file) }
+            else {
+                sourceTabs.remove(file.scroll)
+                file.scroll.dispose()
+            }
             i = i + 1
         }
-        sourceFiles = []
-        source = pane()
+        sourceFiles = kept
+        sourceTabs.setCurrentPage(0)
+        source = (sourceFiles[0] as DebugSource).view
     }
     void sourceMessage(String text) {
         int i = 0
@@ -271,10 +438,50 @@ class Cdbg {
         source = pane()
         source.setText(text)
         Gtk.ScrolledWindow container = scroll(source)
-        sourceTabs.appendPage(container, "Source unavailable")
+        sourceTabs.appendPage(container, "No source")
         sourceFiles.append(DebugSource("", source, container))
-        sourceTabs.setVisible(true)
         sourceTabs.setCurrentPage(sourceFiles.length - 1)
+    }
+    void removeSourcePage(DebugSource file) {
+        list remaining = []
+        int i = 0
+        while (i < sourceFiles.length) {
+            DebugSource item = sourceFiles[i] as DebugSource
+            if (item != file) { remaining.append(item) }
+            i = i + 1
+        }
+        sourceTabs.remove(file.scroll)
+        file.scroll.dispose()
+        sourceFiles = remaining
+    }
+    void removeMessagePage() {
+        if (sourceFiles.length < 2) { return }
+        int i = 0
+        while (i < sourceFiles.length) {
+            DebugSource file = sourceFiles[i] as DebugSource
+            if (file.path.equals("")) {
+                removeSourcePage(file)
+                return
+            }
+            i = i + 1
+        }
+    }
+    // Closing a file tab never touches the debug session; a later stop in the
+    // file reopens it.
+    void closeSource(DebugSource file) {
+        bool open = false
+        int i = 0
+        while (i < sourceFiles.length) {
+            if ((sourceFiles[i] as DebugSource) == file) { open = true }
+            i = i + 1
+        }
+        if (!open) { return }
+        if (sourceFiles.length == 1) {
+            sourceMessage("No source open. Use File > Open Source Code...")
+        }
+        removeSourcePage(file)
+        source = (sourceFiles[sourceTabs.currentPage()] as DebugSource).view
+        status.setText(format("Closed {}", System.FileSystem().basename(file.path)))
     }
     String compiler() {
         String explicit = System.Process().getEnv("CDBG_COMPILER")
@@ -337,6 +544,11 @@ class Cdbg {
     }
     bool closeRequested() {
         closed = true
+        if (fileDialog != null) {
+            fileDialog.cancel()
+            fileDialog = null
+        }
+        if (findWindow != null && !findWindow.disposed()) { findWindow.dispose() }
         endSession()
         return false
     }
@@ -346,9 +558,8 @@ class Cdbg {
         stopCount = 0
         inferiorPid = ""
         location = ""
-        executable = System.FileSystem().absolutePath(target.text())
-        if (executable.equals("")) { executable = target.text() }
-        clearSources()
+        executable = System.FileSystem().absolutePath(targetPath)
+        if (executable.equals("")) { executable = targetPath }
         if (!System.FileSystem().isFile(executable)) { loadFailure(format("Target is not a local file: {}", executable))
             return }
         output = Process.OutputDecoder()
@@ -362,7 +573,7 @@ class Cdbg {
         breaks.setText("")
         if (executable.endsWith(".cw")) {
             String input = executable
-            if (!showSource(input, "")) { return }
+            if (!readableText(input)) { return }
             temporary = System.FileSystem().tempDir()
             if (temporary.equals("")) { fail("Could not create a temporary compilation directory")
                 return }
@@ -557,6 +768,41 @@ class Cdbg {
         if (path.equals("")) { sourceMessage("Source unavailable: stopped frame has no source path") }
         else { showSource(path, line) }
     }
+    // Reads a source file for display; on failure shows the parented error
+    // dialog and returns false without touching any tab.
+    bool readText(String path) {
+        sourceText = ""
+        if (path.equals("") || !System.FileSystem().isFile(path)) {
+            loadFailure(format("Source unavailable: {}", path))
+            return false
+        }
+        System.File file = null
+        try {
+            file = System.File(path, "r")
+            String text = file.readAll()
+            String readError = System.System().lastError()
+            file.close()
+            if (!readError.equals("")) {
+                loadFailure(format("Could not read source {}: {}", path, readError))
+                return false
+            }
+            if (!GtkSource.Content().isText(text)) {
+                loadFailure(format("Source is not a text file: {}", path))
+                return false
+            }
+            sourceText = text
+            return true
+        } except(Exception) as err {
+            if (file != null && file.isOpen()) { file.close() }
+            loadFailure(format("Could not display source {}: {}", path, err.message))
+        }
+        return false
+    }
+    bool readableText(String path) {
+        bool readable = readText(path)
+        sourceText = ""
+        return readable
+    }
     bool showSource(String path, String line) {
         String absolute = System.FileSystem().absolutePath(path)
         if (!absolute.equals("")) { path = absolute }
@@ -572,45 +818,28 @@ class Cdbg {
                     source.centerCursor(line.toInt(), 1)
                     file.centeredStop = stopCount
                 }
+                removeMessagePage()
                 return true
             }
             i = i + 1
         }
-        if (!path.equals("") && System.FileSystem().isFile(path)) {
-            System.File file = null
-            try {
-                file = System.File(path, "r")
-                String text = file.readAll()
-                String readError = System.System().lastError()
-                file.close()
-                if (!readError.equals("")) {
-                    loadFailure(format("Could not read source {}: {}", path, readError))
-                    return false
-                }
-                if (!GtkSource.Content().isText(text)) {
-                    loadFailure(format("Source is not a text file: {}", path))
-                    return false
-                }
-                source = pane()
-                source.setText(text)
-                source.setLanguage(GtkSource.Content().languageFor(path))
-                Gtk.ScrolledWindow container = scroll(source)
-                DebugSource document = DebugSource(path, source, container)
-                sourceFiles.append(document)
-                sourceTabs.appendPage(container, System.FileSystem().basename(path))
-                sourceTabs.setVisible(true)
-                sourceTabs.setCurrentPage(sourceFiles.length - 1)
-                if (identifier(line) && line.toInt() > 0) {
-                    source.centerCursor(line.toInt(), 1)
-                    document.centeredStop = stopCount
-                }
-                return true
-            } except(Exception) as err {
-                if (file != null && file.isOpen()) { file.close() }
-                loadFailure(format("Could not display source {}: {}", path, err.message))
-            }
-        } else { loadFailure(format("Source unavailable: {}", path)) }
-        return false
+        if (!readText(path)) { return false }
+        source = pane()
+        source.setText(sourceText)
+        sourceText = ""
+        source.setLanguage(GtkSource.Content().languageFor(path))
+        Gtk.ScrolledWindow container = scroll(source)
+        DebugSource document = DebugSource(path, source, container)
+        document.closeAction = _self().closeSource
+        sourceFiles.append(document)
+        sourceTabs.appendClosablePage(container, System.FileSystem().basename(path), document.close)
+        removeMessagePage()
+        sourceTabs.setCurrentPage(sourceFiles.length - 1)
+        if (identifier(line) && line.toInt() > 0) {
+            source.centerCursor(line.toInt(), 1)
+            document.centeredStop = stopCount
+        }
+        return true
     }
     void response(MiParser record) {
         if (active == null || !record.token.equals(active.token)) {
@@ -644,6 +873,7 @@ class Cdbg {
             controls()
             return
         }
+        if (done.purpose.equals("target")) { clearSources() }
         if (done.purpose.equals("loaded")) {
             loaded = true
             status.setText("Loaded. Add breakpoints, then Run.")
@@ -657,7 +887,6 @@ class Cdbg {
                 if (file.field("file").text.endsWith(".cw")) { cwhipSources = true }
                 i = i + 1
             }
-            int selected = sourceTabs.currentPage()
             i = 0
             while (i < files.values.length) {
                 MiValue file = files.values[i] as MiValue
@@ -670,10 +899,9 @@ class Cdbg {
                 }
                 i = i + 1
             }
-            if (sourceTabs.pageCount() > 0) {
-                if (selected < 0) { selected = 0 }
-                sourceTabs.setCurrentPage(selected)
-                source = (sourceFiles[selected] as DebugSource).view
+            if (sourceFiles.length > 0 && !(sourceFiles[0] as DebugSource).path.equals("")) {
+                sourceTabs.setCurrentPage(0)
+                source = (sourceFiles[0] as DebugSource).view
             } else { sourceMessage("Source unavailable: no readable source files in debug information") }
         }
         if (done.purpose.equals("restart-kill")) {
