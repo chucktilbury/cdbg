@@ -2,6 +2,7 @@ import gtk
 import sourceview
 import system
 include "mi.cw"
+include "terminal.cw"
 
 class DebugRequest {
     String token
@@ -16,6 +17,18 @@ class DebugRequest {
     }
 }
 
+class DebugSource {
+    String path
+    GtkSource.View view
+    Gtk.ScrolledWindow scroll
+    int centeredStop
+    DebugSource(String filename, GtkSource.View text, Gtk.ScrolledWindow container) {
+        path = filename
+        view = text
+        scroll = container
+    }
+}
+
 class Cdbg {
     Cdbg _self()
     Gtk.Window window
@@ -26,11 +39,14 @@ class Cdbg {
     Gtk.Entry frameNumber
     Gtk.Label status
     GtkSource.View source
+    Gtk.Notebook sourceTabs
+    list sourceFiles
     GtkSource.View locals
     GtkSource.View stack
     GtkSource.View watches
     GtkSource.View breaks
     GtkSource.View console
+    GtkSource.View programOutput
     Gtk.Button runButton
     Gtk.Button stepButton
     Gtk.Button nextButton
@@ -38,6 +54,7 @@ class Cdbg {
     Gtk.Button interruptButton
     Gtk.Button restartButton
     Process.AsyncProcess process
+    DebugTerminal terminal
     Process.OutputDecoder output
     Process.OutputDecoder errors
     list requests
@@ -70,6 +87,7 @@ class Cdbg {
         failure = ""
         inferiorPid = ""
         location = ""
+        sourceFiles = []
     }
     Gtk.Button button(Gtk.Box row, String title, callback<void()> action) {
         Gtk.Button item = Gtk.Button(title)
@@ -80,6 +98,8 @@ class Cdbg {
     GtkSource.View pane() {
         GtkSource.View view = GtkSource.View()
         view.configure("monospace", 11, 4, true, true, false, true)
+        view.setEmojiMenu(false)
+        view.setEditable(false)
         view.widget().setHExpand(true)
         view.widget().setVExpand(true)
         return view
@@ -141,7 +161,11 @@ class Cdbg {
         body.setVExpand(true)
         layout.append(body)
         source = pane()
-        body.append(scroll(source))
+        sourceTabs = Gtk.Notebook()
+        sourceTabs.setHExpand(true)
+        sourceTabs.setVExpand(true)
+        sourceTabs.setVisible(false)
+        body.append(sourceTabs)
         Gtk.Notebook inspection = Gtk.Notebook()
         inspection.setHExpand(true)
         inspection.setVExpand(true)
@@ -151,11 +175,13 @@ class Cdbg {
         watches = pane()
         breaks = pane()
         console = pane()
+        programOutput = pane()
         inspection.appendPage(scroll(locals), "Locals / Arguments")
         inspection.appendPage(scroll(stack), "Stack")
         inspection.appendPage(scroll(watches), "Watches")
         inspection.appendPage(scroll(breaks), "Breakpoints")
-        inspection.appendPage(scroll(console), "Console")
+        inspection.appendPage(scroll(programOutput), "Program Output")
+        inspection.appendPage(scroll(console), "Debugger Console")
         status = Gtk.Label("Load a local target. GDB only; no attach/remote or LLDB yet.")
         layout.append(status)
         controls()
@@ -181,11 +207,28 @@ class Cdbg {
         interruptButton.setSensitive(loaded && running)
         restartButton.setSensitive(loaded && active == null && requests.length == 0 && !restarting)
     }
+    String outputHistory(String previous, String text) {
+        previous.append(text)
+        if (previous.length <= 65536) { return previous }
+        int first = previous.length - 65536
+        while (first < previous.length && previous.byteAt(first) >= 128u &&
+            previous.byteAt(first) <= 191u) { first = first + 1 }
+        return previous.slice(first, previous.length)
+    }
     void log(String text) {
-        String current = console.text()
-        current.append(text)
-        if (current.length > 65536) { current = current.slice(current.length - 65536, current.length) }
-        console.setText(current)
+        console.setText(outputHistory(console.text(), text))
+    }
+    void programLog(String text) {
+        if (text.equals("")) { return }
+        text = text.replace(Process.OutputDecoder().decode(buffer[0u]), "\\0")
+        programOutput.setText(outputHistory(programOutput.text(), text))
+    }
+    void readProgramOutput() {
+        if (terminal == null) { return }
+        programLog(terminal.read())
+        if (!terminal.error().equals("")) {
+            fail(format("Program output transport failed: {}", terminal.error()))
+        }
     }
     void fail(String text) {
         failure = text
@@ -194,6 +237,44 @@ class Cdbg {
             status.setText(format("Error: {}", text))
             log(format("Error: {}\n", text))
         }
+    }
+    void loadFailure(String text) {
+        fail(text)
+        if (window != null && !window.disposed()) {
+            Gtk.AlertDialog().show(window, "Could not load file", text)
+        }
+    }
+    void clearSources() {
+        sourceTabs.setVisible(false)
+        int i = 0
+        while (i < sourceFiles.length) {
+            DebugSource file = sourceFiles[i] as DebugSource
+            sourceTabs.remove(file.scroll)
+            file.scroll.dispose()
+            i = i + 1
+        }
+        sourceFiles = []
+        source = pane()
+    }
+    void sourceMessage(String text) {
+        int i = 0
+        while (i < sourceFiles.length) {
+            DebugSource document = sourceFiles[i] as DebugSource
+            if (document.path.equals("")) {
+                source = document.view
+                source.setText(text)
+                sourceTabs.setCurrentPage(i)
+                return
+            }
+            i = i + 1
+        }
+        source = pane()
+        source.setText(text)
+        Gtk.ScrolledWindow container = scroll(source)
+        sourceTabs.appendPage(container, "Source unavailable")
+        sourceFiles.append(DebugSource("", source, container))
+        sourceTabs.setVisible(true)
+        sourceTabs.setCurrentPage(sourceFiles.length - 1)
     }
     String compiler() {
         String explicit = System.Process().getEnv("CDBG_COMPILER")
@@ -234,6 +315,12 @@ class Cdbg {
             }
             process.close()
             process = null }
+        if (terminal != null) {
+            readProgramOutput()
+            terminal.close()
+            programLog(terminal.read())
+            terminal = null
+        }
         requests = []
         active = null
         pending = ""
@@ -260,20 +347,22 @@ class Cdbg {
         inferiorPid = ""
         location = ""
         executable = System.FileSystem().absolutePath(target.text())
-        source.setText("")
-        if (!System.FileSystem().isFile(executable)) { fail("Target is not a local file")
+        if (executable.equals("")) { executable = target.text() }
+        clearSources()
+        if (!System.FileSystem().isFile(executable)) { loadFailure(format("Target is not a local file: {}", executable))
             return }
         output = Process.OutputDecoder()
         errors = Process.OutputDecoder()
         pending = ""
         console.setText("")
+        programOutput.setText("")
         locals.setText("")
         stack.setText("")
         watches.setText("")
         breaks.setText("")
         if (executable.endsWith(".cw")) {
             String input = executable
-            showSource(input, "")
+            if (!showSource(input, "")) { return }
             temporary = System.FileSystem().tempDir()
             if (temporary.equals("")) { fail("Could not create a temporary compilation directory")
                 return }
@@ -289,11 +378,21 @@ class Cdbg {
             if (process != null) { process.close()
                 process = null }
             cleanup()
+            if (terminal != null) { terminal.close()
+                terminal = null }
             return
         }
         pollToken = Gtk.Application().post(_self().poll)
     }
     void startDebugger() {
+        terminal = DebugTerminal()
+        if (!terminal.error().equals("")) {
+            fail(format("Could not allocate program output terminal: {}", terminal.error()))
+            terminal.close()
+            terminal = null
+            cleanup()
+            return
+        }
         String gdb = System.Process().getEnv("CDBG_GDB")
         if (gdb.equals("")) { gdb = "gdb" }
         list argv = ["--nx", "--quiet", "--interpreter=mi2",
@@ -309,6 +408,7 @@ class Cdbg {
         enqueue("-gdb-set pagination off", "setup", "")
         enqueue("-gdb-set mi-async on", "setup", "")
         enqueue("-gdb-set confirm off", "setup", "")
+        enqueue(format("-inferior-tty-set {}", MiParser().quote(terminal.path())), "setup", "")
         enqueue(format("-file-exec-and-symbols {}", MiParser().quote(executable)), "target", "")
         String args = "-exec-arguments"
         int i = 0
@@ -454,19 +554,63 @@ class Cdbg {
         String line = frame.field("line").text
         location = format("{}:{} ({})", path, line, frame.field("func").text)
         status.setText(format("Stopped: {}", location))
-        showSource(path, line)
+        if (path.equals("")) { sourceMessage("Source unavailable: stopped frame has no source path") }
+        else { showSource(path, line) }
     }
-    void showSource(String path, String line) {
+    bool showSource(String path, String line) {
+        String absolute = System.FileSystem().absolutePath(path)
+        if (!absolute.equals("")) { path = absolute }
+        int i = 0
+        while (i < sourceFiles.length) {
+            DebugSource file = sourceFiles[i] as DebugSource
+            if (file.path.equals(path)) {
+                bool switched = sourceTabs.currentPage() != i
+                source = file.view
+                sourceTabs.setCurrentPage(i)
+                if (identifier(line) && line.toInt() > 0 &&
+                    (switched || source.line() != line.toInt() || file.centeredStop != stopCount)) {
+                    source.centerCursor(line.toInt(), 1)
+                    file.centeredStop = stopCount
+                }
+                return true
+            }
+            i = i + 1
+        }
         if (!path.equals("") && System.FileSystem().isFile(path)) {
+            System.File file = null
             try {
-                System.File file = System.File(path, "r")
+                file = System.File(path, "r")
                 String text = file.readAll()
+                String readError = System.System().lastError()
                 file.close()
+                if (!readError.equals("")) {
+                    loadFailure(format("Could not read source {}: {}", path, readError))
+                    return false
+                }
+                if (!GtkSource.Content().isText(text)) {
+                    loadFailure(format("Source is not a text file: {}", path))
+                    return false
+                }
+                source = pane()
                 source.setText(text)
                 source.setLanguage(GtkSource.Content().languageFor(path))
-                if (identifier(line) && line.toInt() > 0) { source.setCursor(line.toInt(), 1) }
-            } except(Exception) as err { fail(format("Could not display source {}: {}", path, err.message)) }
-        } else { source.setText(format("Source unavailable: {}", path)) }
+                Gtk.ScrolledWindow container = scroll(source)
+                DebugSource document = DebugSource(path, source, container)
+                sourceFiles.append(document)
+                sourceTabs.appendPage(container, System.FileSystem().basename(path))
+                sourceTabs.setVisible(true)
+                sourceTabs.setCurrentPage(sourceFiles.length - 1)
+                if (identifier(line) && line.toInt() > 0) {
+                    source.centerCursor(line.toInt(), 1)
+                    document.centeredStop = stopCount
+                }
+                return true
+            } except(Exception) as err {
+                if (file != null && file.isOpen()) { file.close() }
+                loadFailure(format("Could not display source {}: {}", path, err.message))
+            }
+        } else { loadFailure(format("Source unavailable: {}", path)) }
+        return false
     }
     void response(MiParser record) {
         if (active == null || !record.token.equals(active.token)) {
@@ -487,11 +631,13 @@ class Cdbg {
             if (done.purpose.equals("watch")) {
                 watches.setText(format("{}{} = <{}>\n", watches.text(), done.expression, message))
             } else {
-                fail(message)
+                if (done.purpose.equals("target")) { loadFailure(message) }
+                else { fail(message) }
                 if (done.purpose.equals("setup") || done.purpose.equals("target") ||
                     done.purpose.equals("loaded")) {
                     requests = []
                     loaded = false
+                    endSession()
                 }
             }
             sendNext()
@@ -502,24 +648,33 @@ class Cdbg {
             loaded = true
             status.setText("Loaded. Add breakpoints, then Run.")
         }
-        if (done.purpose.equals("sources") && source.text().equals("")) {
+        if (done.purpose.equals("sources")) {
             MiValue files = record.data.field("files")
-            String candidate = ""
+            bool cwhipSources = false
             int i = 0
+            while (i < files.values.length) {
+                MiValue file = files.values[i] as MiValue
+                if (file.field("file").text.endsWith(".cw")) { cwhipSources = true }
+                i = i + 1
+            }
+            int selected = sourceTabs.currentPage()
+            i = 0
             while (i < files.values.length) {
                 MiValue file = files.values[i] as MiValue
                 String path = file.field("fullname").text
                 if (path.equals("")) { path = file.field("file").text }
-                if (System.FileSystem().isFile(path)) {
-                    if (candidate.equals("")) { candidate = path }
-                    if (path.endsWith(".cw") && !path.contains("/modules/") &&
-                        !path.contains("/builtin/")) { candidate = path
-                        break }
+                if (!path.equals("") && !path.startsWith("/usr/") &&
+                    !path.contains("/modules/") && !path.contains("/builtin/") &&
+                    (!cwhipSources || path.endsWith(".cw"))) {
+                    if (!showSource(path, "")) { break }
                 }
                 i = i + 1
             }
-            if (!candidate.equals("")) { showSource(candidate, "") }
-            else { source.setText("Source unavailable: no readable source files in debug information") }
+            if (sourceTabs.pageCount() > 0) {
+                if (selected < 0) { selected = 0 }
+                sourceTabs.setCurrentPage(selected)
+                source = (sourceFiles[selected] as DebugSource).view
+            } else { sourceMessage("Source unavailable: no readable source files in debug information") }
         }
         if (done.purpose.equals("restart-kill")) {
             hasRun = false
@@ -598,9 +753,10 @@ class Cdbg {
             return
         }
         if (parsed.kind.equals("^")) { response(parsed) }
-        if (parsed.kind.equals("~") || parsed.kind.equals("@") || parsed.kind.equals("&")) {
+        if (parsed.kind.equals("~") || parsed.kind.equals("&")) {
             log(parsed.data.text)
         }
+        if (parsed.kind.equals("@")) { programLog(parsed.data.text) }
         if (parsed.kind.equals("=") && parsed.result.equals("thread-group-started")) {
             inferiorPid = parsed.data.field("pid").text
         }
@@ -614,6 +770,7 @@ class Cdbg {
                 return
             }
             if (reason.startsWith("exited")) {
+                readProgramOutput()
                 hasRun = false
                 locals.setText("Target exited")
                 watches.setText("Target exited")
@@ -649,6 +806,11 @@ class Cdbg {
     void poll() {
         pollToken = 0
         if (closed || process == null) { return }
+        readProgramOutput()
+        if (terminal != null && !terminal.error().equals("")) {
+            endSession()
+            return
+        }
         if (mode == 2 && !process.inputError().equals("")) {
             fail(format("GDB stdin failed: {}", process.inputError()))
             endSession()
@@ -676,12 +838,13 @@ class Cdbg {
                     process.close()
                     process = null
                     log(compilerOutput)
-                    if (!success) { fail("Cwhip -g compilation failed; see Console")
+                    if (!success) { loadFailure("Cwhip -g compilation failed; see Debugger Console")
                         cleanup()
                         return }
                     startDebugger()
-                    if (!process.started()) { process.close()
-                        process = null
+                    if (process == null || !process.started()) {
+                        if (process != null) { process.close()
+                            process = null }
                         cleanup()
                         return }
                 } else {
@@ -697,6 +860,7 @@ class Cdbg {
                     active = null
                     controls()
                     fail(format("GDB session ended unexpectedly: {}", error))
+                    endSession()
                     return
                 }
             }
