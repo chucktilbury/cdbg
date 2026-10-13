@@ -23,20 +23,13 @@ class DebugSource {
     GtkSource.View view
     Gtk.ScrolledWindow scroll
     int centeredStop
-    Gtk.ContextMenu menu
     callback<void(DebugSource)> closeAction
-    callback<void(DebugSource)> addAction
-    callback<void(DebugSource)> deleteAction
     DebugSource(String filename, GtkSource.View text, Gtk.ScrolledWindow container) {
         path = filename
         view = text
         scroll = container
     }
     void close() { closeAction(_self()) }
-    void addBreakpoint() { menu.setVisible(false)
-        addAction(_self()) }
-    void deleteBreakpoint() { menu.setVisible(false)
-        deleteAction(_self()) }
 }
 DebugSource DebugSource._self() from "cwhip_gtk_self"
 
@@ -67,12 +60,22 @@ class Cdbg {
     Gtk.Label findStatus
     String targetPath
     String sourceText
-    Gtk.ContextMenu breakMenu
+    int toggleBreakItem
+    int toggleEnableItem
+    Gtk.Paned body
+    Gtk.Notebook inspection
+    String statePath
+    String stateText
+    bool stateWritable
+    String stateTarget
+    bool restoringBreakpoints
+    int restorePending
     Gtk.ContextMenu watchMenu
     Gtk.TransientWindow watchWindow
     Gtk.Entry watchEntry
     Gtk.Label watchStatus
     list breakpointRows
+    list breakpointEntries
     list breakpointLocations
     list stackFrames
     int selectedFrame
@@ -130,6 +133,7 @@ class Cdbg {
         sourceText = ""
         sourceFiles = []
         breakpointRows = []
+        breakpointEntries = []
         breakpointLocations = []
         stackFrames = []
     }
@@ -172,8 +176,13 @@ class Cdbg {
         quitItem = menu.addItem(fileMenu, "Quit", _self().quit)
         int searchMenu = menu.addMenu("Search")
         findItem = menu.addItem(searchMenu, "Find...", _self().showFind)
+        int breakpointMenu = menu.addMenu("Breakpoint")
+        toggleBreakItem = menu.addItem(breakpointMenu, "Set/Clear Breakpoint", _self().toggleBreakpoint)
+        toggleEnableItem = menu.addItem(breakpointMenu, "Enable/Disable Breakpoint", _self().toggleEnabled)
         window.bindShortcut("<Control>q", _self().quit)
         window.bindShortcut("<Control>f", _self().showFind)
+        window.bindShortcut("F9", _self().toggleBreakpoint)
+        window.bindShortcut("<Control>F9", _self().toggleEnabled)
         findWindow = Gtk.TransientWindow("Find")
         findWindow.setDefaultSize(420, 100)
         findWindow.setTransientFor(window)
@@ -199,7 +208,7 @@ class Cdbg {
         nextButton = button(control, "Step Over", _self().stepOver)
         finishButton = button(control, "Step Out", _self().stepOut)
         interruptButton = button(control, "Pause", _self().interrupt)
-        Gtk.Paned body = Gtk.Paned()
+        body = Gtk.Paned()
         body.setPosition(600)
         body.setVExpand(true)
         layout.append(body)
@@ -207,12 +216,14 @@ class Cdbg {
         sourceTabs = Gtk.Notebook()
         sourceTabs.onPageChanged(_self().sourceChanged)
         sourceTabs.setBorderedTabs()
+        sourceTabs.setScrollable(true)
         sourceTabs.setHExpand(true)
         sourceTabs.setVExpand(true)
         body.append(sourceTabs)
         sourceMessage("No source loaded. Use File > Load Executable... or File > Open Source Code...")
-        Gtk.Notebook inspection = Gtk.Notebook()
+        inspection = Gtk.Notebook()
         inspection.setBorderedTabs()
+        inspection.setScrollable(true)
         inspection.setHExpand(true)
         inspection.setVExpand(true)
         body.append(inspection)
@@ -224,10 +235,6 @@ class Cdbg {
         stack.onLineActivated(_self().stackClicked)
         breaks.setLineSelection(true)
         breaks.onLineActivated(_self().breakpointClicked)
-        breakMenu = Gtk.ContextMenu(breaks.widget())
-        Gtk.Box breakActions = Gtk.Box(Gtk.Box.VERTICAL, 0)
-        breakMenu.setChild(breakActions)
-        button(breakActions, "Delete Breakpoint", _self().deleteSelectedBreakpoint)
         watchMenu = Gtk.ContextMenu(watches.widget())
         Gtk.Box watchActions = Gtk.Box(Gtk.Box.VERTICAL, 0)
         watchMenu.setChild(watchActions)
@@ -258,6 +265,7 @@ class Cdbg {
         inspection.appendPage(scroll(console), "Debugger Console")
         status = Gtk.Label("Load a local target. GDB only; no attach/remote or LLDB yet.")
         layout.append(status)
+        readState()
         controls()
         window.present()
         if (System.Process().argc() > 1) {
@@ -397,16 +405,188 @@ class Cdbg {
         if (page >= 0 && page < sourceFiles.length) {
             source = (sourceFiles[page] as DebugSource).view
         }
+        controls()
     }
+    void sourceLineClicked(int line) { controls() }
     void controls() {
         if (window == null || window.disposed()) { return }
         bool ready = loaded && !running && active == null && requests.length == 0
+        bool canBreak = ready && currentSource() != null
+        menu.setItemEnabled(toggleBreakItem, canBreak)
+        menu.setItemEnabled(toggleEnableItem, canBreak)
         runButton.setSensitive(ready)
         stepButton.setSensitive(ready && hasRun)
         nextButton.setSensitive(ready && hasRun)
         finishButton.setSensitive(ready && hasRun)
         interruptButton.setSensitive(loaded && running)
         restartButton.setSensitive(loaded && active == null && requests.length == 0 && !restarting)
+    }
+    void stateDiagnostic(String text) {
+        log(format("State: {}\n", text))
+        System.StandardIO().writeErrorLine(format("cdbg state: {}", text))
+    }
+    int stateNumber(String key, int fallback, int minimum, int maximum) {
+        String raw = Gtk.Config().value(stateText, "", key)
+        if (!raw.startsWith("i") || raw.length > 8 || !identifier(raw.slice(1, raw.length))) {
+            if (!raw.equals("")) { stateDiagnostic(format("Invalid {}; using default", key)) }
+            return fallback
+        }
+        int value = raw.slice(1, raw.length).toInt()
+        if (value < minimum) { return minimum }
+        if (value > maximum) { return maximum }
+        return value
+    }
+    void readState() {
+        stateText = ""
+        stateWritable = true
+        stateTarget = ""
+        String home = System.Process().getEnv("XDG_CONFIG_HOME")
+        if (home.equals("")) {
+            String userHome = System.Process().getEnv("HOME")
+            if (userHome.equals("")) {
+                stateWritable = false
+                stateDiagnostic("No HOME or XDG_CONFIG_HOME; state saving disabled")
+                return
+            }
+            home = System.FileSystem().join(userHome, ".config")
+        }
+        statePath = System.FileSystem().join(home, "cdbg/state.toml")
+        String presence = Gtk.Config().fileStatus(statePath)
+        if (presence.equals("missing")) { return }
+        if (!presence.equals("") || !System.FileSystem().isFile(statePath) ||
+            System.FileSystem().fileSize(statePath) > 262144) {
+            stateWritable = false
+            stateDiagnostic("Cannot read state; using defaults and leaving file unchanged")
+            return
+        }
+        System.File file = null
+        try {
+            file = System.File(statePath, "r")
+            stateText = file.readAll()
+            String error = System.System().lastError()
+            file.close()
+            if (!error.equals("")) { raise(Exception(error)) }
+            String problem = Gtk.Config().validate(stateText)
+            if (!GtkSource.Content().isText(stateText) || !problem.equals("") ||
+                !Gtk.Config().value(stateText, "", "version").equals("i1")) {
+                raise(Exception(format("Invalid state TOML/version: {}", problem)))
+            }
+        } except(Exception) as error {
+            if (file != null && file.isOpen()) { file.close() }
+            stateWritable = false
+            stateText = ""
+            stateDiagnostic(format("{}; using defaults and leaving file unchanged", error.message))
+            return
+        }
+        int width = stateNumber("width", 1100, 640, 3840)
+        window.setDefaultSize(width, stateNumber("height", 760, 400, 2160))
+        body.setPosition(stateNumber("pane", 600, 100, width - 100))
+        inspection.setCurrentPage(stateNumber("inspector", 0, 0, 5))
+        String maximized = Gtk.Config().value(stateText, "", "maximized")
+        if (maximized.equals("btrue")) { window.setMaximized(true) }
+        else { if (!maximized.equals("") && !maximized.equals("bfalse")) {
+            stateDiagnostic("Invalid maximized; using default")
+        } }
+    }
+    bool stateDirectory(String path) {
+        if (System.FileSystem().isDir(path)) { return true }
+        String parent = System.FileSystem().dirname(path)
+        if (parent.equals(path) || parent.equals("")) { return false }
+        if (!stateDirectory(parent)) { return false }
+        return System.FileSystem().mkdir(path)
+    }
+    void saveState(bool layout) {
+        if (!stateWritable || statePath.equals("") || window == null || window.disposed()) { return }
+        String updates = "version = 1\n"
+        if (layout) {
+            updates.append(format("width = {}\nheight = {}\nmaximized = {}\npane = {}\ninspector = {}\n",
+                window.defaultWidth(), window.defaultHeight(), window.maximized(), body.position(),
+                inspection.currentPage()))
+        }
+        if (loaded && !restoringBreakpoints && !stateTarget.equals("")) {
+            if (breakpointLocations.length > 256) {
+                stateDiagnostic("Only the first 256 resolved breakpoint locations will be saved")
+            }
+            updates.append(format("[{}]\npoints = [\n", Gtk.Config().quote(stateTarget)))
+            list locations = []
+            int i = 0
+            while (i < breakpointLocations.length && locations.length < 256) {
+                DebugBreakpoint point = breakpointLocations[i] as DebugBreakpoint
+                String key = format("{}:{}", point.path, point.line)
+                bool duplicate = false
+                int j = 0
+                while (j < locations.length) {
+                    if ((locations[j] as String).equals(key)) { duplicate = true }
+                    j = j + 1
+                }
+                if (!duplicate && !point.path.equals("") && identifier(point.line)) {
+                    locations.append(key)
+                    bool enabled = point.enabled
+                    int k = 0
+                    while (k < breakpointLocations.length) {
+                        DebugBreakpoint other = breakpointLocations[k] as DebugBreakpoint
+                        if (other.path.equals(point.path) && other.line.equals(point.line) && other.enabled) {
+                            enabled = true
+                        }
+                        k = k + 1
+                    }
+                    updates.append(format("{{ file = {}, line = {}, enabled = {} }},\n",
+                        Gtk.Config().quote(point.path), point.line, enabled))
+                }
+                i = i + 1
+            }
+            updates.append("]\n")
+        }
+        String text = Gtk.Config().merge(stateText, updates)
+        if (text.equals("") || text.length > 262144) {
+            stateDiagnostic("State snapshot exceeds its limit or cannot be serialized")
+            return
+        }
+        if (!stateDirectory(System.FileSystem().dirname(statePath))) {
+            stateDiagnostic("Cannot create configuration directory")
+            return
+        }
+        String error = Gtk.Config().saveNow(statePath, text, stateText)
+        if (!error.equals("")) { stateDiagnostic(format("Save failed: {}", error))
+            return }
+        stateText = text
+    }
+    void restoreBreakpoints() {
+        restoringBreakpoints = true
+        restorePending = 0
+        String kind = Gtk.Config().value(stateText, stateTarget, "points")
+        int count = Gtk.Config().arraySize(stateText, stateTarget, "points")
+        if (count > 256) { stateDiagnostic("Saved breakpoint limit exceeded; restoring first 256 entries") }
+        if (!kind.equals("") && count < 0) {
+            stateDiagnostic("Saved breakpoints must be an array; skipped")
+        } else {
+            int i = 0
+            while (i < count && i < 256) {
+                String file = Gtk.Config().item(stateText, stateTarget, "points", i, "file")
+                String line = Gtk.Config().item(stateText, stateTarget, "points", i, "line")
+                String enabled = Gtk.Config().item(stateText, stateTarget, "points", i, "enabled")
+                if (!file.startsWith("s") || !line.startsWith("i") || line.length > 8 ||
+                    !identifier(line.slice(1, line.length)) || line.slice(1, line.length).toInt() < 1 ||
+                    (!enabled.equals("btrue") && !enabled.equals("bfalse"))) {
+                    stateDiagnostic(format("Invalid saved breakpoint {}; skipped", i + 1))
+                } else {
+                    file = file.slice(1, file.length)
+                    line = line.slice(1, line.length)
+                    if (!System.FileSystem().isFile(file)) {
+                        stateDiagnostic(format("Stale breakpoint {}:{}; skipped", file, line))
+                    } else {
+                        String command = "-break-insert"
+                        if (enabled.equals("bfalse")) { command.append(" -d") }
+                        restorePending = restorePending + 1
+                        enqueue(format("{} {}", command, MiParser().quote(format("{}:{}", file, line))),
+                            "restore-break", format("{}:{}", file, line))
+                    }
+                }
+                i = i + 1
+            }
+        }
+        if (restorePending == 0) { restoringBreakpoints = false }
+        requestBreakpoints()
     }
     String outputHistory(String previous, String text) {
         previous.append(text)
@@ -580,6 +760,7 @@ class Cdbg {
         selectedFrame = 0
         stackFrames = []
         breakpointRows = []
+        breakpointEntries = []
         breakpointLocations = []
         syncBreakpointMarks()
         if (window != null && !window.disposed() && breaks != null) { breaks.setText("") }
@@ -591,6 +772,7 @@ class Cdbg {
         }
     }
     bool closeRequested() {
+        saveState(true)
         closed = true
         if (fileDialog != null) {
             fileDialog.cancel()
@@ -602,7 +784,9 @@ class Cdbg {
         return false
     }
     void launch() {
+        saveState(false)
         endSession()
+        stateTarget = System.FileSystem().absolutePath(targetPath)
         failure = ""
         stopCount = 0
         inferiorPid = ""
@@ -615,6 +799,7 @@ class Cdbg {
         errors = Process.OutputDecoder()
         pending = ""
         console.setText("")
+        if (!stateWritable) { log("State file is invalid/unreadable; defaults in use, saving disabled\n") }
         programOutput.setText("")
         locals.setText("")
         stack.setText("")
@@ -770,10 +955,7 @@ class Cdbg {
         enqueue(format("-break-delete {}", number), "break", "")
         requestBreakpoints()
     }
-    void sourceAddBreakpoint(DebugSource file) {
-        addBreakpoint(format("{}:{}", file.path, file.view.line()))
-    }
-    void sourceDeleteBreakpoint(DebugSource file) {
+    list lineBreakpoints(DebugSource file) {
         list ids = []
         int i = 0
         while (i < breakpointLocations.length) {
@@ -789,19 +971,64 @@ class Cdbg {
             }
             i = i + 1
         }
-        if (ids.length == 0) { fail("There is no breakpoint on this source line")
-            return }
         i = 0
+        while (i < breakpointEntries.length) {
+            MiValue entry = breakpointEntries[i] as MiValue
+            if (entry.field("original-location").text.equals(format("{}:{}", file.path, file.view.line()))) {
+                String number = entry.field("number").text.split(".")[0] as String
+                bool duplicate = false
+                int j = 0
+                while (j < ids.length) {
+                    if ((ids[j] as String).equals(number)) { duplicate = true }
+                    j = j + 1
+                }
+                if (!duplicate) { ids.append(number) }
+            }
+            i = i + 1
+        }
+        return ids
+    }
+    void breakpointClicked(int line) {}
+    bool breakpointReady() {
+        if (!loaded || running || active != null || requests.length > 0 || currentSource() == null) {
+            status.setText("Load a target, pause it, and select a source file before changing breakpoints")
+            return false
+        }
+        return true
+    }
+    void toggleBreakpoint() {
+        if (!breakpointReady()) { return }
+        DebugSource file = currentSource()
+        list ids = lineBreakpoints(file)
+        if (ids.length == 0) { addBreakpoint(format("{}:{}", file.path, file.view.line()))
+            return }
+        int i = 0
         while (i < ids.length) { deleteBreakpoint(ids[i] as String)
             i = i + 1 }
     }
-    void breakpointClicked(int line) {}
-    void deleteSelectedBreakpoint() {
-        breakMenu.setVisible(false)
-        int row = breaks.line() - 1
-        if (row < 0 || row >= breakpointRows.length) { fail("Select a breakpoint to delete")
+    void toggleEnabled() {
+        if (!breakpointReady()) { return }
+        list ids = lineBreakpoints(currentSource())
+        if (ids.length == 0) { status.setText("No breakpoint at the current source line")
             return }
-        deleteBreakpoint(breakpointRows[row] as String)
+        bool enabled = false
+        int i = 0
+        while (i < breakpointLocations.length) {
+            DebugBreakpoint point = breakpointLocations[i] as DebugBreakpoint
+            int j = 0
+            while (j < ids.length) {
+                if (point.number.equals(ids[j] as String) && point.enabled) { enabled = true }
+                j = j + 1
+            }
+            i = i + 1
+        }
+        String command = "-break-enable"
+        if (enabled) { command = "-break-disable" }
+        i = 0
+        while (i < ids.length) { command.append(format(" {}", ids[i] as String))
+            i = i + 1 }
+        enqueue(command, "break", "")
+        requestBreakpoints()
     }
     void requestBreakpoints() {
         if (active != null && active.purpose.equals("breaks")) { return }
@@ -991,16 +1218,10 @@ class Cdbg {
         source.setText(sourceText)
         sourceText = ""
         source.setLanguage(GtkSource.Content().languageFor(path))
+        source.onLineActivated(_self().sourceLineClicked)
         Gtk.ScrolledWindow container = scroll(source)
         DebugSource document = DebugSource(path, source, container)
         document.closeAction = _self().closeSource
-        document.addAction = _self().sourceAddBreakpoint
-        document.deleteAction = _self().sourceDeleteBreakpoint
-        document.menu = Gtk.ContextMenu(source.widget())
-        Gtk.Box actions = Gtk.Box(Gtk.Box.VERTICAL, 0)
-        document.menu.setChild(actions)
-        button(actions, "Add Breakpoint", document.addBreakpoint)
-        button(actions, "Delete Breakpoint", document.deleteBreakpoint)
         source.setMarkStyle("breakpoint", "media-record-symbolic", "#f4b4b4")
         source.setMarkStyle("disabled-breakpoint", "media-record-symbolic", "#cccccc")
         sourceFiles.append(document)
@@ -1028,6 +1249,15 @@ class Cdbg {
             return
         }
         if (record.result.equals("error")) {
+            if (done.purpose.equals("restore-break")) {
+                stateDiagnostic(format("Could not restore {}: {}; skipped", done.expression,
+                    record.data.field("msg").text))
+                restorePending = restorePending - 1
+                if (restorePending == 0) { restoringBreakpoints = false }
+                sendNext()
+                controls()
+                return
+            }
             if (done.purpose.startsWith("restart-")) { restarting = false }
             String message = record.data.field("msg").text
             if (done.purpose.equals("watch")) {
@@ -1055,6 +1285,11 @@ class Cdbg {
         if (done.purpose.equals("loaded")) {
             loaded = true
             status.setText("Loaded. Add breakpoints, then Run.")
+            restoreBreakpoints()
+        }
+        if (done.purpose.equals("restore-break")) {
+            restorePending = restorePending - 1
+            if (restorePending == 0) { restoringBreakpoints = false }
         }
         if (done.purpose.equals("sources")) {
             MiValue files = record.data.field("files")
@@ -1132,6 +1367,7 @@ class Cdbg {
         }
         if (done.purpose.equals("breaks")) {
             MiValue rows = record.data.field("BreakpointTable").field("body")
+            breakpointEntries = rows.values
             breakpointRows = []
             breakpointLocations = []
             String text = ""
@@ -1140,7 +1376,19 @@ class Cdbg {
                 MiValue item = rows.values[i] as MiValue
                 String number = item.field("number").text
                 breakpointRows.append((number.split(".")[0] as String))
-                breakpointLocation(item, "", !item.field("enabled").text.equals("n"))
+                bool enabled = !item.field("enabled").text.equals("n")
+                if (number.contains(".")) {
+                    String parent = number.split(".")[0] as String
+                    int j = 0
+                    while (j < rows.values.length) {
+                        MiValue root = rows.values[j] as MiValue
+                        if (root.field("number").text.equals(parent) && root.field("enabled").text.equals("n")) {
+                            enabled = false
+                        }
+                        j = j + 1
+                    }
+                }
+                breakpointLocation(item, "", enabled)
                 text.append(format("#{} {} {}:{} {}\n", item.field("number").text,
                     item.field("enabled").text, item.field("file").text, item.field("line").text,
                     item.field("original-location").text))
@@ -1148,6 +1396,7 @@ class Cdbg {
             }
             breaks.setText(text)
             syncBreakpointMarks()
+            if (!restoringBreakpoints) { saveState(false) }
         }
         sendNext()
         controls()
