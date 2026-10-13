@@ -141,10 +141,27 @@ class MiParser {
                 result = word()
                 while (valid && offset < input.length) {
                     take(",")
-                    String key = word()
-                    take("=")
-                    data.keys.append(key)
-                    data.values.append(value(0))
+                    // Older GDB versions append unlabelled child locations
+                    // after a multi-location bkpt result/notification.
+                    if (character().equals("{") && data.keys.length > 0 &&
+                        (data.keys[data.keys.length - 1] as String).equals("bkpt")) {
+                        MiValue parent = data.values[data.values.length - 1] as MiValue
+                        MiValue child = value(0)
+                        if (!child.field("number").text.startsWith(
+                            format("{}.", parent.field("number").text))) { valid = false }
+                        MiValue locations = parent.field("locations")
+                        if (locations.values.length == 0) {
+                            parent.keys.append("locations")
+                            parent.values.append(locations)
+                        }
+                        locations.keys.append("")
+                        locations.values.append(child)
+                    } else {
+                        String key = word()
+                        take("=")
+                        data.keys.append(key)
+                        data.values.append(value(0))
+                    }
                 }
             } else { valid = false }
         }

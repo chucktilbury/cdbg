@@ -23,15 +23,35 @@ class DebugSource {
     GtkSource.View view
     Gtk.ScrolledWindow scroll
     int centeredStop
+    Gtk.ContextMenu menu
     callback<void(DebugSource)> closeAction
+    callback<void(DebugSource)> addAction
+    callback<void(DebugSource)> deleteAction
     DebugSource(String filename, GtkSource.View text, Gtk.ScrolledWindow container) {
         path = filename
         view = text
         scroll = container
     }
     void close() { closeAction(_self()) }
+    void addBreakpoint() { menu.setVisible(false)
+        addAction(_self()) }
+    void deleteBreakpoint() { menu.setVisible(false)
+        deleteAction(_self()) }
 }
 DebugSource DebugSource._self() from "cwhip_gtk_self"
+
+class DebugBreakpoint {
+    String number
+    String path
+    String line
+    bool enabled
+    DebugBreakpoint(String id, String file, String row, bool active) {
+        number = id
+        path = file
+        line = row
+        enabled = active
+    }
+}
 
 class Cdbg {
     Cdbg _self()
@@ -47,10 +67,15 @@ class Cdbg {
     Gtk.Label findStatus
     String targetPath
     String sourceText
-    Gtk.Entry breakpoint
-    Gtk.Entry breakpointNumber
-    Gtk.Entry watch
-    Gtk.Entry frameNumber
+    Gtk.ContextMenu breakMenu
+    Gtk.ContextMenu watchMenu
+    Gtk.TransientWindow watchWindow
+    Gtk.Entry watchEntry
+    Gtk.Label watchStatus
+    list breakpointRows
+    list breakpointLocations
+    list stackFrames
+    int selectedFrame
     Gtk.Label status
     GtkSource.View source
     Gtk.Notebook sourceTabs
@@ -104,6 +129,9 @@ class Cdbg {
         targetPath = ""
         sourceText = ""
         sourceFiles = []
+        breakpointRows = []
+        breakpointLocations = []
+        stackFrames = []
     }
     Gtk.Button button(Gtk.Box row, String title, callback<void()> action) {
         Gtk.Button item = Gtk.Button(title)
@@ -171,34 +199,13 @@ class Cdbg {
         nextButton = button(control, "Step Over", _self().stepOver)
         finishButton = button(control, "Step Out", _self().stepOut)
         interruptButton = button(control, "Pause", _self().interrupt)
-        button(control, "End Session", _self().endSession)
-        Gtk.Box breakRow = Gtk.Box(Gtk.Box.HORIZONTAL, 6)
-        layout.append(breakRow)
-        breakRow.append(Gtk.Label("Breakpoint (function or file:line)"))
-        breakpoint = Gtk.Entry("main")
-        breakpoint.setHExpand(true)
-        breakRow.append(breakpoint)
-        button(breakRow, "Add", _self().addBreakpoint)
-        breakpointNumber = Gtk.Entry("")
-        breakRow.append(breakpointNumber)
-        button(breakRow, "Delete ID", _self().deleteBreakpoint)
-        Gtk.Box watchRow = Gtk.Box(Gtk.Box.HORIZONTAL, 6)
-        layout.append(watchRow)
-        watchRow.append(Gtk.Label("Watch expression"))
-        watch = Gtk.Entry("")
-        watch.setHExpand(true)
-        watchRow.append(watch)
-        button(watchRow, "Watch", _self().addWatch)
-        watchRow.append(Gtk.Label("Stack frame"))
-        frameNumber = Gtk.Entry("0")
-        watchRow.append(frameNumber)
-        button(watchRow, "Select Frame", _self().selectFrame)
         Gtk.Paned body = Gtk.Paned()
         body.setPosition(600)
         body.setVExpand(true)
         layout.append(body)
         source = pane()
         sourceTabs = Gtk.Notebook()
+        sourceTabs.onPageChanged(_self().sourceChanged)
         sourceTabs.setBorderedTabs()
         sourceTabs.setHExpand(true)
         sourceTabs.setVExpand(true)
@@ -213,6 +220,34 @@ class Cdbg {
         stack = pane()
         watches = pane()
         breaks = pane()
+        stack.setLineSelection(true)
+        stack.onLineActivated(_self().stackClicked)
+        breaks.setLineSelection(true)
+        breaks.onLineActivated(_self().breakpointClicked)
+        breakMenu = Gtk.ContextMenu(breaks.widget())
+        Gtk.Box breakActions = Gtk.Box(Gtk.Box.VERTICAL, 0)
+        breakMenu.setChild(breakActions)
+        button(breakActions, "Delete Breakpoint", _self().deleteSelectedBreakpoint)
+        watchMenu = Gtk.ContextMenu(watches.widget())
+        Gtk.Box watchActions = Gtk.Box(Gtk.Box.VERTICAL, 0)
+        watchMenu.setChild(watchActions)
+        button(watchActions, "Add Watch...", _self().showWatch)
+        watchWindow = Gtk.TransientWindow("Add Watch")
+        watchWindow.setTransientFor(window)
+        watchWindow.setDefaultSize(420, 100)
+        watchWindow.setVisible(false)
+        watchWindow.onCloseRequest(_self().watchCloseRequested)
+        Gtk.Box watchLayout = Gtk.Box(Gtk.Box.VERTICAL, 6)
+        watchWindow.setChild(watchLayout)
+        watchLayout.append(Gtk.Label("Expression"))
+        watchEntry = Gtk.Entry("")
+        watchLayout.append(watchEntry)
+        watchStatus = Gtk.Label("")
+        watchLayout.append(watchStatus)
+        Gtk.Box watchButtons = Gtk.Box(Gtk.Box.HORIZONTAL, 6)
+        watchLayout.append(watchButtons)
+        button(watchButtons, "Add", _self().acceptWatch)
+        button(watchButtons, "Cancel", _self().closeWatch)
         console = pane()
         programOutput = pane()
         inspection.appendPage(scroll(locals), "Locals / Arguments")
@@ -357,6 +392,12 @@ class Cdbg {
         if (file.path.equals("")) { return null }
         return file
     }
+    void sourceChanged() {
+        int page = sourceTabs.currentPage()
+        if (page >= 0 && page < sourceFiles.length) {
+            source = (sourceFiles[page] as DebugSource).view
+        }
+    }
     void controls() {
         if (window == null || window.disposed()) { return }
         bool ready = loaded && !running && active == null && requests.length == 0
@@ -453,6 +494,7 @@ class Cdbg {
         sourceTabs.remove(file.scroll)
         file.scroll.dispose()
         sourceFiles = remaining
+        sourceChanged()
     }
     void removeMessagePage() {
         if (sourceFiles.length < 2) { return }
@@ -535,6 +577,12 @@ class Cdbg {
         running = false
         hasRun = false
         restarting = false
+        selectedFrame = 0
+        stackFrames = []
+        breakpointRows = []
+        breakpointLocations = []
+        syncBreakpointMarks()
+        if (window != null && !window.disposed() && breaks != null) { breaks.setText("") }
         mode = 0
         cleanup()
         controls()
@@ -549,6 +597,7 @@ class Cdbg {
             fileDialog = null
         }
         if (findWindow != null && !findWindow.disposed()) { findWindow.dispose() }
+        if (watchWindow != null && !watchWindow.disposed()) { watchWindow.dispose() }
         endSession()
         return false
     }
@@ -661,7 +710,7 @@ class Cdbg {
         }
         String command = "-exec-run"
         if (hasRun) { command = "-exec-continue" }
-        enqueue(command, "execute", "")
+        execute(command)
     }
     void restart() {
         if (!loaded || active != null || requests.length > 0 || restarting) {
@@ -681,9 +730,17 @@ class Cdbg {
             enqueue("-exec-run", "execute", "")
         }
     }
-    void stepInto() { if (stopped()) { enqueue("-exec-step", "execute", "") } }
-    void stepOver() { if (stopped()) { enqueue("-exec-next", "execute", "") } }
-    void stepOut() { if (stopped()) { enqueue("-exec-finish", "execute", "") } }
+    // Browsing a caller selects that frame for inspection, not for execution.
+    void execute(String command) {
+        if (active != null || requests.length > 0) { fail("Wait for GDB to be ready before executing")
+            return }
+        if (hasRun && selectedFrame != 0) {
+            enqueue("-stack-select-frame 0", "execution-frame", command)
+        } else { enqueue(command, "execute", "") }
+    }
+    void stepInto() { if (stopped()) { execute("-exec-step") } }
+    void stepOver() { if (stopped()) { execute("-exec-next") } }
+    void stepOut() { if (stopped()) { execute("-exec-finish") } }
     void interrupt() {
         if (!loaded || !running) { fail("No running target to pause")
             return }
@@ -698,40 +755,146 @@ class Cdbg {
         }
         return true
     }
-    void addBreakpoint() {
-        String text = breakpoint.text().trim()
-        if (!loaded || running || text.equals("")) { fail("Load and stop a target, then enter a breakpoint")
+    void addBreakpoint(String text) {
+        text = text.trim()
+        if (!loaded || running || text.equals("")) { fail("Load a target and pause it before adding a breakpoint")
             return }
         enqueue(format("-break-insert {}", MiParser().quote(text)), "break", "")
-        enqueue("-break-list", "breaks", "")
+        requestBreakpoints()
     }
-    void deleteBreakpoint() {
-        if (!loaded || running || !identifier(breakpointNumber.text())) {
-            fail("Enter a numeric breakpoint ID while the target is stopped")
+    void deleteBreakpoint(String number) {
+        if (!loaded || running || !identifier(number)) {
+            fail("Select a breakpoint while the target is stopped")
             return
         }
-        enqueue(format("-break-delete {}", breakpointNumber.text()), "break", "")
+        enqueue(format("-break-delete {}", number), "break", "")
+        requestBreakpoints()
+    }
+    void sourceAddBreakpoint(DebugSource file) {
+        addBreakpoint(format("{}:{}", file.path, file.view.line()))
+    }
+    void sourceDeleteBreakpoint(DebugSource file) {
+        list ids = []
+        int i = 0
+        while (i < breakpointLocations.length) {
+            DebugBreakpoint item = breakpointLocations[i] as DebugBreakpoint
+            if (sameSource(item.path, file.path) && item.line.equals(format("{}", file.view.line()))) {
+                bool duplicate = false
+                int j = 0
+                while (j < ids.length) {
+                    if ((ids[j] as String).equals(item.number)) { duplicate = true }
+                    j = j + 1
+                }
+                if (!duplicate) { ids.append(item.number) }
+            }
+            i = i + 1
+        }
+        if (ids.length == 0) { fail("There is no breakpoint on this source line")
+            return }
+        i = 0
+        while (i < ids.length) { deleteBreakpoint(ids[i] as String)
+            i = i + 1 }
+    }
+    void breakpointClicked(int line) {}
+    void deleteSelectedBreakpoint() {
+        breakMenu.setVisible(false)
+        int row = breaks.line() - 1
+        if (row < 0 || row >= breakpointRows.length) { fail("Select a breakpoint to delete")
+            return }
+        deleteBreakpoint(breakpointRows[row] as String)
+    }
+    void requestBreakpoints() {
+        if (active != null && active.purpose.equals("breaks")) { return }
+        int i = 0
+        while (i < requests.length) {
+            if ((requests[i] as DebugRequest).purpose.equals("breaks")) { return }
+            i = i + 1
+        }
         enqueue("-break-list", "breaks", "")
     }
-    void addWatch() {
-        String expression = watch.text().trim()
+    bool sameSource(String path, String file) {
+        if (path.equals("")) { return false }
+        if (System.FileSystem().absolutePath(path).equals(file)) { return true }
+        return !path.contains("/") && System.FileSystem().basename(file).equals(path)
+    }
+    void syncBreakpointMarks() {
+        if (window == null || window.disposed()) { return }
+        int i = 0
+        while (i < sourceFiles.length) {
+            DebugSource file = sourceFiles[i] as DebugSource
+            file.view.clearLineMarks("breakpoint")
+            file.view.clearLineMarks("disabled-breakpoint")
+            int j = 0
+            while (j < breakpointLocations.length) {
+                DebugBreakpoint point = breakpointLocations[j] as DebugBreakpoint
+                if (sameSource(point.path, file.path) && identifier(point.line) && point.line.toInt() > 0) {
+                    String category = "disabled-breakpoint"
+                    if (point.enabled) { category = "breakpoint" }
+                    file.view.addLineMark(category, point.line.toInt())
+                }
+                j = j + 1
+            }
+            i = i + 1
+        }
+    }
+    void breakpointLocation(MiValue item, String parent, bool enabled) {
+        String number = item.field("number").text
+        if (parent.equals("")) { parent = (number.split(".")[0] as String) }
+        if (item.field("enabled").text.equals("n")) { enabled = false }
+        String path = item.field("fullname").text
+        if (path.equals("")) { path = item.field("file").text }
+        String line = item.field("line").text
+        if (!path.equals("") && identifier(line)) {
+            breakpointLocations.append(DebugBreakpoint(parent, path, line, enabled))
+        }
+        MiValue locations = item.field("locations")
+        int i = 0
+        while (i < locations.values.length) {
+            breakpointLocation(locations.values[i] as MiValue, parent, enabled)
+            i = i + 1
+        }
+    }
+    void showWatch() {
+        watchMenu.setVisible(false)
+        watchEntry.setText("")
+        watchStatus.setText("")
+        watchWindow.setVisible(true)
+        watchWindow.present()
+        watchEntry.focus()
+    }
+    void closeWatch() { watchWindow.setVisible(false) }
+    bool watchCloseRequested() { closeWatch()
+        return true }
+    void acceptWatch() {
+        if (addWatch(watchEntry.text())) { closeWatch() }
+    }
+    bool addWatch(String expression) {
+        expression = expression.trim()
         if (expression.equals("") || expression.length > 4096 || expressions.length >= 64) {
+            watchStatus.setText("Enter a watch expression (maximum 4096 bytes, 64 watches)")
             fail("Enter a watch expression (maximum 4096 bytes, 64 watches)")
-            return }
+            return false }
         int i = 0
         while (i < expressions.length) {
-            if ((expressions[i] as String).equals(expression)) { return }
+            if ((expressions[i] as String).equals(expression)) { return true }
             i = i + 1
         }
         expressions.append(expression)
         if (loaded && !running && hasRun) { refresh() }
         else { watches.setText("Watches will be evaluated at the next stop") }
+        return true
     }
-    void selectFrame() {
+    void stackClicked(int line) {
+        int row = line - 1
+        if (row < 0 || row >= stackFrames.length) { return }
+        MiValue frame = stackFrames[row] as MiValue
+        selectFrame(frame.field("level").text)
+    }
+    void selectFrame(String number) {
         if (!stopped()) { return }
-        if (!identifier(frameNumber.text())) { fail("Enter a numeric stack frame")
+        if (!identifier(number)) { fail("Select a stack frame")
             return }
-        enqueue(format("-stack-select-frame {}", frameNumber.text()), "frame", "")
+        enqueue(format("-stack-select-frame {}", number), "frame", number)
     }
     bool inspection(DebugRequest request) {
         return (request.purpose.equals("location") || request.purpose.equals("locals") ||
@@ -831,7 +994,17 @@ class Cdbg {
         Gtk.ScrolledWindow container = scroll(source)
         DebugSource document = DebugSource(path, source, container)
         document.closeAction = _self().closeSource
+        document.addAction = _self().sourceAddBreakpoint
+        document.deleteAction = _self().sourceDeleteBreakpoint
+        document.menu = Gtk.ContextMenu(source.widget())
+        Gtk.Box actions = Gtk.Box(Gtk.Box.VERTICAL, 0)
+        document.menu.setChild(actions)
+        button(actions, "Add Breakpoint", document.addBreakpoint)
+        button(actions, "Delete Breakpoint", document.deleteBreakpoint)
+        source.setMarkStyle("breakpoint", "media-record-symbolic", "#f4b4b4")
+        source.setMarkStyle("disabled-breakpoint", "media-record-symbolic", "#cccccc")
         sourceFiles.append(document)
+        syncBreakpointMarks()
         sourceTabs.appendClosablePage(container, System.FileSystem().basename(path), document.close)
         removeMessagePage()
         sourceTabs.setCurrentPage(sourceFiles.length - 1)
@@ -874,6 +1047,11 @@ class Cdbg {
             return
         }
         if (done.purpose.equals("target")) { clearSources() }
+        if (done.purpose.equals("execution-frame")) {
+            selectedFrame = 0
+            enqueue(done.expression, "execute", "")
+        }
+        if (done.purpose.equals("break")) { requestBreakpoints() }
         if (done.purpose.equals("loaded")) {
             loaded = true
             status.setText("Loaded. Add breakpoints, then Run.")
@@ -931,6 +1109,7 @@ class Cdbg {
         }
         if (done.purpose.equals("stack")) {
             MiValue frames = record.data.field("stack")
+            stackFrames = frames.values
             String text = ""
             int i = 0
             while (i < frames.values.length) {
@@ -939,7 +1118,7 @@ class Cdbg {
                     frame.field("file").text, frame.field("line").text))
                 i = i + 1
             }
-            stack.setText(text)
+            if (!stack.text().equals(text)) { stack.setText(text) }
         }
         if (done.purpose.equals("watch")) {
             watches.setText(format("{}{} = {}\n", watches.text(), done.expression, record.data.field("value").text))
@@ -948,20 +1127,27 @@ class Cdbg {
             showLocation(record.data.field("frame"))
         }
         if (done.purpose.equals("frame")) {
+            selectedFrame = done.expression.toInt()
             refresh()
         }
         if (done.purpose.equals("breaks")) {
             MiValue rows = record.data.field("BreakpointTable").field("body")
+            breakpointRows = []
+            breakpointLocations = []
             String text = ""
             int i = 0
             while (i < rows.values.length) {
                 MiValue item = rows.values[i] as MiValue
+                String number = item.field("number").text
+                breakpointRows.append((number.split(".")[0] as String))
+                breakpointLocation(item, "", !item.field("enabled").text.equals("n"))
                 text.append(format("#{} {} {}:{} {}\n", item.field("number").text,
                     item.field("enabled").text, item.field("file").text, item.field("line").text,
                     item.field("original-location").text))
                 i = i + 1
             }
             breaks.setText(text)
+            syncBreakpointMarks()
         }
         sendNext()
         controls()
@@ -988,6 +1174,9 @@ class Cdbg {
         if (parsed.kind.equals("=") && parsed.result.equals("thread-group-started")) {
             inferiorPid = parsed.data.field("pid").text
         }
+        if (parsed.kind.equals("=") && loaded &&
+            (parsed.result.equals("breakpoint-created") || parsed.result.equals("breakpoint-modified") ||
+             parsed.result.equals("breakpoint-deleted"))) { requestBreakpoints() }
         if (parsed.kind.equals("*") && parsed.result.equals("stopped")) {
             running = false
             String reason = parsed.data.field("reason").text
@@ -1005,6 +1194,7 @@ class Cdbg {
                 status.setText(format("Target {} {}", reason, parsed.data.field("exit-code").text))
             } else {
                 hasRun = true
+                selectedFrame = 0
                 stopCount = stopCount + 1
                 showLocation(parsed.data.field("frame"))
                 refresh()
