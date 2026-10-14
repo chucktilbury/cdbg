@@ -98,6 +98,7 @@ class Cdbg {
     list breakpointLocations
     list stackFrames
     int selectedFrame
+    bool executing
     Gtk.Label status
     GtkSource.View source
     Gtk.Notebook sourceTabs
@@ -471,14 +472,17 @@ class Cdbg {
     void sourceLineClicked(int line) { controls() }
     void controls() {
         if (window == null || window.disposed()) { return }
-        bool ready = loaded && !running && active == null && requests.length == 0
+        bool ready = loaded && !running && !executing && active == null && requests.length == 0
         bool canBreak = ready && currentSource() != null
         menu.setItemEnabled(toggleBreakItem, canBreak)
         menu.setItemEnabled(toggleEnableItem, canBreak)
-        runButton.setSensitive(ready)
-        stepButton.setSensitive(ready && hasRun)
-        nextButton.setSensitive(ready && hasRun)
-        finishButton.setSensitive(ready && hasRun)
+        // Execution controls stay live while a stop refresh is pending; execute()
+        // discards that refresh and reports presses it cannot accept.
+        bool canExecute = loaded && !running && !restarting
+        runButton.setSensitive(canExecute)
+        stepButton.setSensitive(canExecute && hasRun)
+        nextButton.setSensitive(canExecute && hasRun)
+        finishButton.setSensitive(canExecute && hasRun)
         interruptButton.setSensitive(loaded && running)
         restartButton.setSensitive(loaded && active == null && requests.length == 0 && !restarting)
     }
@@ -717,6 +721,12 @@ class Cdbg {
             fail(format("Program output transport failed: {}", terminal.error()))
         }
     }
+    // Presses refused while an execution command is pending are expected user
+    // activity, so they are reported in the status line rather than as errors.
+    void ignored(String text) {
+        status.setText(text)
+        log(format("{}\n", text))
+    }
     void fail(String text) {
         failure = text
         System.StandardIO().writeErrorLine(format("cdbg: {}", text))
@@ -863,6 +873,7 @@ class Cdbg {
         running = false
         hasRun = false
         restarting = false
+        executing = false
         selectedFrame = 0
         stopDetail = ""
         stopPosition = ""
@@ -1001,12 +1012,18 @@ class Cdbg {
         return true
     }
     void resume() {
-        if (!loaded || running || active != null || requests.length > 0) {
-            fail("Wait for GDB to be ready before running")
+        if (!loaded || running || restarting) {
+            fail("Run ignored: the target is not loaded and stopped")
             return
         }
-        if (hasRun) { execute("-exec-continue") }
-        else { startRun() }
+        if (executing) { ignored("Run ignored: the previous execution command is still pending")
+            return }
+        if (hasRun) { execute("-exec-continue", "Continue") }
+        else {
+            executing = true
+            startRun()
+            controls()
+        }
     }
     // Every fresh run resends the current arguments, so Setup changes apply to
     // the next Run/Restart. "Break at start" is a temporary breakpoint on the
@@ -1034,7 +1051,7 @@ class Cdbg {
         enqueue("-exec-run", "execute", "")
     }
     void restart() {
-        if (!loaded || active != null || requests.length > 0 || restarting) {
+        if (!loaded || active != null || requests.length > 0 || restarting || executing) {
             fail("Wait for GDB to be ready before restarting")
             return
         }
@@ -1052,16 +1069,37 @@ class Cdbg {
         }
     }
     // Browsing a caller selects that frame for inspection, not for execution.
-    void execute(String command) {
-        if (active != null || requests.length > 0) { fail("Wait for GDB to be ready before executing")
-            return }
-        if (hasRun && selectedFrame != 0) {
+    // A press during the post-stop refresh is accepted: queued inspection and
+    // frame-browse requests are discarded, an in-flight one is answered as
+    // stale, and only one execution command may be outstanding.
+    void execute(String command, String label) {
+        if (executing) {
+            ignored(format("{} ignored: the previous execution command is still pending", label))
+            return
+        }
+        bool restoreFrame = selectedFrame != 0
+        list kept = []
+        int i = 0
+        while (i < requests.length) {
+            DebugRequest request = requests[i] as DebugRequest
+            if (request.purpose.equals("frame")) { restoreFrame = true }
+            if (!inspection(request) && !request.purpose.equals("frame")) { kept.append(request) }
+            i = i + 1
+        }
+        requests = kept
+        if (active != null && (inspection(active) || active.purpose.equals("frame"))) {
+            if (active.purpose.equals("frame")) { restoreFrame = true }
+            active.purpose = "stale"
+        }
+        executing = true
+        if (hasRun && restoreFrame) {
             enqueue("-stack-select-frame 0", "execution-frame", command)
         } else { enqueue(command, "execute", "") }
+        controls()
     }
-    void stepInto() { if (stopped()) { execute("-exec-step") } }
-    void stepOver() { if (stopped()) { execute("-exec-next") } }
-    void stepOut() { if (stopped()) { execute("-exec-finish") } }
+    void stepInto() { if (stopped()) { execute("-exec-step", "Step Into") } }
+    void stepOver() { if (stopped()) { execute("-exec-next", "Step Over") } }
+    void stepOut() { if (stopped()) { execute("-exec-finish", "Step Out") } }
     void interrupt() {
         if (!loaded || !running) { fail("No running target to pause")
             return }
@@ -1366,6 +1404,8 @@ class Cdbg {
     }
     void selectFrame(String number) {
         if (!stopped()) { return }
+        if (executing) { fail("Frame selection ignored: an execution command is pending")
+            return }
         if (!identifier(number)) { fail("Select a stack frame")
             return }
         enqueue(format("-stack-select-frame {}", number), "frame", number)
@@ -1375,7 +1415,7 @@ class Cdbg {
             request.purpose.equals("stack") || request.purpose.equals("watch"))
     }
     void refresh() {
-        if (!loaded || running || !hasRun) { return }
+        if (!loaded || running || !hasRun || executing) { return }
         list pendingRequests = []
         int requestIndex = 0
         while (requestIndex < requests.length) {
@@ -1518,6 +1558,7 @@ class Cdbg {
                 return
             }
             if (done.purpose.startsWith("restart-")) { restarting = false }
+            if (done.purpose.equals("execute") || done.purpose.equals("execution-frame")) { executing = false }
             String message = record.data.field("msg").text
             if (done.purpose.equals("watch")) {
                 watches.setText(format("{}{} = <{}>\n", watches.text(), done.expression, message))
@@ -1702,6 +1743,7 @@ class Cdbg {
              parsed.result.equals("breakpoint-deleted"))) { requestBreakpoints() }
         if (parsed.kind.equals("*") && parsed.result.equals("stopped")) {
             running = false
+            executing = false
             String reason = parsed.data.field("reason").text
             if (restarting) {
                 if (reason.startsWith("exited")) { hasRun = false }
@@ -1753,6 +1795,7 @@ class Cdbg {
         }
         if (parsed.kind.equals("*") && parsed.result.equals("running")) {
             running = true
+            executing = false
             controls()
         }
     }
