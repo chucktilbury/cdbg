@@ -135,6 +135,9 @@ class Cdbg {
     String temporary
     String compilerOutput
     String location
+    String stopDetail
+    String stopPosition
+    String stopAddress
     String failure
     String inferiorPid
     int stopCount
@@ -148,6 +151,9 @@ class Cdbg {
         failure = ""
         inferiorPid = ""
         location = ""
+        stopDetail = ""
+        stopPosition = ""
+        stopAddress = ""
         targetPath = ""
         sourceText = ""
         sourceFiles = []
@@ -858,6 +864,9 @@ class Cdbg {
         hasRun = false
         restarting = false
         selectedFrame = 0
+        stopDetail = ""
+        stopPosition = ""
+        stopAddress = ""
         stackFrames = []
         breakpointRows = []
         breakpointEntries = []
@@ -1394,6 +1403,9 @@ class Cdbg {
         location = format("{}:{} ({})", path, line, frame.field("func").text)
         if (atStart) { status.setText(format("Stopped at start: {}", location)) }
         else { status.setText(format("Stopped: {}", location)) }
+        if (selectedFrame == 0 && !stopDetail.equals("")) {
+            status.setText(format("{}; {}", status.text(), stopDetail))
+        }
         if (path.equals("")) { sourceMessage("Source unavailable: stopped frame has no source path") }
         else { showSource(path, line) }
     }
@@ -1715,6 +1727,18 @@ class Cdbg {
                 hasRun = true
                 selectedFrame = 0
                 stopCount = stopCount + 1
+                MiValue frame = parsed.data.field("frame")
+                String stopPath = frame.field("fullname").text
+                if (stopPath.equals("")) { stopPath = frame.field("file").text }
+                String position = format("{}:{} ({})", stopPath,
+                    frame.field("line").text, frame.field("func").text)
+                String address = frame.field("addr").text
+                stopDetail = format("{}; PC {}", reason, address)
+                if (position.equals(stopPosition)) {
+                    stopDetail.append(format("; same source line (previous PC {})", stopAddress))
+                }
+                stopPosition = position
+                stopAddress = address
                 String hit = parsed.data.field("bkptno").text
                 // GDB may delete the temporary breakpoint before *stopped.
                 atStart = !hit.equals("") && hit.equals(startNumber)
