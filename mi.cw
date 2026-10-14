@@ -172,3 +172,84 @@ class MiParser {
             .replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t"))
     }
 }
+
+// Shell-like inferior argument parsing without invoking a shell: blanks
+// separate words; '...' is literal; "..." honours \" \\ \$ \` escapes; an
+// unquoted backslash escapes the next character; '' and "" give empty words.
+class ArgumentList {
+    list values
+    String error
+
+    ArgumentList() {
+        values = []
+        error = ""
+    }
+    String word(buffer bytes) {
+        Process.OutputDecoder decoder = Process.OutputDecoder()
+        String text = decoder.decode(bytes)
+        text.append(decoder.finish())
+        return text
+    }
+    bool parse(String text) {
+        values = []
+        error = ""
+        buffer current = buffer[]
+        bool started = false
+        int quote = 0
+        int i = 0
+        while (i < text.length) {
+            int c = int(text.byteAt(i))
+            i = i + 1
+            if (quote == 39) {
+                if (c == 39) { quote = 0 } else { current.append(unsigned(c)) }
+            } else { if (quote == 34) {
+                if (c == 34) { quote = 0 } else {
+                    if (c == 92 && i < text.length && (int(text.byteAt(i)) == 34 ||
+                        int(text.byteAt(i)) == 92 || int(text.byteAt(i)) == 36 ||
+                        int(text.byteAt(i)) == 96)) {
+                        current.append(text.byteAt(i))
+                        i = i + 1
+                    } else { current.append(unsigned(c)) }
+                }
+            } else {
+                if (c == 32 || c == 9 || c == 10 || c == 13) {
+                    if (started) { values.append(word(current))
+                        current = buffer[]
+                        started = false }
+                } else {
+                    started = true
+                    if (c == 39 || c == 34) { quote = c } else { if (c == 92) {
+                        if (i >= text.length) {
+                            error = "trailing backslash"
+                            values = []
+                            return false
+                        }
+                        current.append(text.byteAt(i))
+                        i = i + 1
+                    } else { current.append(unsigned(c)) } }
+                }
+            } }
+        }
+        if (quote != 0) {
+            error = "unterminated quote"
+            values = []
+            return false
+        }
+        if (started) { values.append(word(current)) }
+        return true
+    }
+    String display(list items) {
+        String text = ""
+        int i = 0
+        while (i < items.length) {
+            String item = items[i] as String
+            if (i > 0) { text.append(" ") }
+            if (item.equals("") || item.contains(" ") || item.contains("\t") || item.contains("\n") ||
+                item.contains("\r") || item.contains("'") || item.contains("\"") || item.contains("\\")) {
+                text.append(format("'{}'", item.replace("'", "'\\''")))
+            } else { text.append(item) }
+            i = i + 1
+        }
+        return text
+    }
+}

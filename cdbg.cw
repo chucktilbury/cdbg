@@ -62,6 +62,25 @@ class Cdbg {
     String sourceText
     int toggleBreakItem
     int toggleEnableItem
+    int setupItem
+    Gtk.TransientWindow setupWindow
+    Gtk.CheckButton setupStart
+    Gtk.Entry setupArguments
+    Gtk.Label setupStatus
+    Gtk.ContextMenu outputMenu
+    bool breakAtStart
+    bool targetSettings
+    String argumentText
+    list cliArguments
+    bool cliPending
+    String startBreakpoint
+    bool startMissing
+    list runHits
+    String stateError
+    String stateNote
+    bool defaultChanged
+    String startNumber
+    bool atStart
     Gtk.Paned body
     Gtk.Notebook inspection
     String statePath
@@ -136,6 +155,14 @@ class Cdbg {
         breakpointEntries = []
         breakpointLocations = []
         stackFrames = []
+        breakAtStart = true
+        argumentText = ""
+        cliArguments = []
+        startBreakpoint = ""
+        startNumber = ""
+        runHits = []
+        stateError = ""
+        stateNote = ""
     }
     Gtk.Button button(Gtk.Box row, String title, callback<void()> action) {
         Gtk.Button item = Gtk.Button(title)
@@ -179,6 +206,8 @@ class Cdbg {
         int breakpointMenu = menu.addMenu("Breakpoint")
         toggleBreakItem = menu.addItem(breakpointMenu, "Set/Clear Breakpoint", _self().toggleBreakpoint)
         toggleEnableItem = menu.addItem(breakpointMenu, "Enable/Disable Breakpoint", _self().toggleEnabled)
+        int debugMenu = menu.addMenu("Debug")
+        setupItem = menu.addItem(debugMenu, "Setup...", _self().showSetup)
         window.bindShortcut("<Control>q", _self().quit)
         window.bindShortcut("<Control>f", _self().showFind)
         window.bindShortcut("F9", _self().toggleBreakpoint)
@@ -257,6 +286,31 @@ class Cdbg {
         button(watchButtons, "Cancel", _self().closeWatch)
         console = pane()
         programOutput = pane()
+        outputMenu = Gtk.ContextMenu(programOutput.widget())
+        Gtk.Box outputActions = Gtk.Box(Gtk.Box.VERTICAL, 0)
+        outputMenu.setChild(outputActions)
+        button(outputActions, "Clear", _self().clearOutput)
+        button(outputActions, "Copy", _self().copyOutput)
+        button(outputActions, "Copy All", _self().copyAllOutput)
+        setupWindow = Gtk.TransientWindow("Setup")
+        setupWindow.setTransientFor(window)
+        setupWindow.setDefaultSize(480, 160)
+        setupWindow.setVisible(false)
+        setupWindow.onCloseRequest(_self().setupCloseRequested)
+        Gtk.Box setupLayout = Gtk.Box(Gtk.Box.VERTICAL, 6)
+        setupWindow.setChild(setupLayout)
+        setupStart = Gtk.CheckButton("Break at start")
+        setupLayout.append(setupStart)
+        setupLayout.append(Gtk.Label("Program arguments (shell-style quoting; no shell is run)"))
+        setupArguments = Gtk.Entry("")
+        setupArguments.setHExpand(true)
+        setupLayout.append(setupArguments)
+        setupStatus = Gtk.Label("")
+        setupLayout.append(setupStatus)
+        Gtk.Box setupButtons = Gtk.Box(Gtk.Box.HORIZONTAL, 6)
+        setupLayout.append(setupButtons)
+        button(setupButtons, "Apply", _self().applySetup)
+        button(setupButtons, "Cancel", _self().closeSetup)
         inspection.appendPage(scroll(locals), "Locals / Arguments")
         inspection.appendPage(scroll(stack), "Stack")
         inspection.appendPage(scroll(watches), "Watches")
@@ -272,9 +326,10 @@ class Cdbg {
             int i = 2
             if (System.Process().arg(i).equals("--")) { i = i + 1 }
             while (i < System.Process().argc()) {
-                arguments.append(System.Process().arg(i))
+                cliArguments.append(System.Process().arg(i))
                 i = i + 1
             }
+            cliPending = cliArguments.length > 0
             loadTarget(System.Process().arg(1))
         }
     }
@@ -440,17 +495,19 @@ class Cdbg {
         stateText = ""
         stateWritable = true
         stateTarget = ""
+        stateError = ""
+        stateNote = ""
+        // Settings are local to the directory cdbg runs in. The earlier global
+        // XDG state file is neither read nor written; migrate it by hand.
+        statePath = System.FileSystem().join(System.FileSystem().getCwd(), ".cdbg.toml")
         String home = System.Process().getEnv("XDG_CONFIG_HOME")
-        if (home.equals("")) {
-            String userHome = System.Process().getEnv("HOME")
-            if (userHome.equals("")) {
-                stateWritable = false
-                stateDiagnostic("No HOME or XDG_CONFIG_HOME; state saving disabled")
-                return
-            }
-            home = System.FileSystem().join(userHome, ".config")
+        if (home.equals("") && !System.Process().getEnv("HOME").equals("")) {
+            home = System.FileSystem().join(System.Process().getEnv("HOME"), ".config")
         }
-        statePath = System.FileSystem().join(home, "cdbg/state.toml")
+        if (!home.equals("") && System.FileSystem().isFile(System.FileSystem().join(home, "cdbg/state.toml"))) {
+            stateNote = format("Note: global {} is ignored; settings now live in {} (copy entries by hand to migrate)\n",
+                System.FileSystem().join(home, "cdbg/state.toml"), statePath)
+        }
         String presence = Gtk.Config().fileStatus(statePath)
         if (presence.equals("missing")) { return }
         if (!presence.equals("") || !System.FileSystem().isFile(statePath) ||
@@ -488,26 +545,63 @@ class Cdbg {
             stateDiagnostic("Invalid maximized; using default")
         } }
     }
-    bool stateDirectory(String path) {
-        if (System.FileSystem().isDir(path)) { return true }
-        String parent = System.FileSystem().dirname(path)
-        if (parent.equals(path) || parent.equals("")) { return false }
-        if (!stateDirectory(parent)) { return false }
-        return System.FileSystem().mkdir(path)
+    bool savedFlag(String table, String key, bool fallback) {
+        String raw = Gtk.Config().value(stateText, table, key)
+        if (raw.equals("btrue")) { return true }
+        if (raw.equals("bfalse")) { return false }
+        if (!raw.equals("")) { stateDiagnostic(format("Invalid {}; using default", key)) }
+        return fallback
+    }
+    // Per-target setup: Break at start defaults to the directory default
+    // (true for a new configuration). Command-line arguments after -- override
+    // saved arguments for that command-line session only and are not saved.
+    void loadTargetSettings() {
+        breakAtStart = savedFlag("", "break_at_start", true)
+        targetSettings = false
+        arguments = []
+        argumentText = ""
+        startBreakpoint = ""
+        if (!Gtk.Config().value(stateText, stateTarget, "break_at_start").equals("")) {
+            breakAtStart = savedFlag(stateTarget, "break_at_start", breakAtStart)
+            targetSettings = true
+        }
+        String saved = Gtk.Config().value(stateText, stateTarget, "arguments")
+        if (saved.startsWith("s")) {
+            ArgumentList parsed = ArgumentList()
+            if (parsed.parse(saved.slice(1, saved.length))) {
+                arguments = parsed.values
+                argumentText = saved.slice(1, saved.length)
+                targetSettings = true
+            } else { stateDiagnostic(format("Invalid saved arguments ({}); ignored", parsed.error)) }
+        } else { if (!saved.equals("")) { stateDiagnostic("Saved arguments must be a string; ignored") } }
+        if (cliPending) {
+            arguments = cliArguments
+            cliPending = false
+            log(format("Using command-line arguments: {}\n", ArgumentList().display(arguments)))
+        }
     }
     void saveState(bool layout) {
         if (!stateWritable || statePath.equals("") || window == null || window.disposed()) { return }
         String updates = "version = 1\n"
+        if (defaultChanged) { updates.append(format("break_at_start = {}\n", breakAtStart)) }
         if (layout) {
             updates.append(format("width = {}\nheight = {}\nmaximized = {}\npane = {}\ninspector = {}\n",
                 window.defaultWidth(), window.defaultHeight(), window.maximized(), body.position(),
                 inspection.currentPage()))
         }
-        if (loaded && !restoringBreakpoints && !stateTarget.equals("")) {
+        bool points = loaded && !restoringBreakpoints
+        if (!stateTarget.equals("") && (points || targetSettings)) {
+            updates.append(format("[{}]\n", Gtk.Config().quote(stateTarget)))
+            if (targetSettings) {
+                updates.append(format("break_at_start = {}\narguments = {}\n", breakAtStart,
+                    Gtk.Config().quote(argumentText)))
+            }
+        }
+        if (points && !stateTarget.equals("")) {
             if (breakpointLocations.length > 256) {
                 stateDiagnostic("Only the first 256 resolved breakpoint locations will be saved")
             }
-            updates.append(format("[{}]\npoints = [\n", Gtk.Config().quote(stateTarget)))
+            updates.append("points = [\n")
             list locations = []
             int i = 0
             while (i < breakpointLocations.length && locations.length < 256) {
@@ -539,17 +633,23 @@ class Cdbg {
         }
         String text = Gtk.Config().merge(stateText, updates)
         if (text.equals("") || text.length > 262144) {
-            stateDiagnostic("State snapshot exceeds its limit or cannot be serialized")
-            return
-        }
-        if (!stateDirectory(System.FileSystem().dirname(statePath))) {
-            stateDiagnostic("Cannot create configuration directory")
+            saveError("snapshot exceeds its limit or cannot be serialized")
             return
         }
         String error = Gtk.Config().saveNow(statePath, text, stateText)
-        if (!error.equals("")) { stateDiagnostic(format("Save failed: {}", error))
+        if (!error.equals("")) { saveError(error)
             return }
         stateText = text
+        stateError = ""
+        defaultChanged = false
+    }
+    // An unwritable directory is reported once per distinct error; debugging
+    // continues and nothing claims the settings were saved.
+    void saveError(String error) {
+        String text = format("Settings not saved to {}: {}", statePath, error)
+        if (!stateError.equals(error)) { stateDiagnostic(text) }
+        stateError = error
+        if (window != null && !window.disposed()) { status.setText(text) }
     }
     void restoreBreakpoints() {
         restoringBreakpoints = true
@@ -800,6 +900,9 @@ class Cdbg {
         pending = ""
         console.setText("")
         if (!stateWritable) { log("State file is invalid/unreadable; defaults in use, saving disabled\n") }
+        if (!stateNote.equals("")) { log(stateNote) }
+        if (!stateError.equals("")) { log(format("Settings not saved to {}: {}\n", statePath, stateError)) }
+        loadTargetSettings()
         programOutput.setText("")
         locals.setText("")
         stack.setText("")
@@ -893,9 +996,33 @@ class Cdbg {
             fail("Wait for GDB to be ready before running")
             return
         }
-        String command = "-exec-run"
-        if (hasRun) { command = "-exec-continue" }
-        execute(command)
+        if (hasRun) { execute("-exec-continue") }
+        else { startRun() }
+    }
+    // Every fresh run resends the current arguments, so Setup changes apply to
+    // the next Run/Restart. "Break at start" is a temporary breakpoint on the
+    // entry symbol: for Cwhip programs `main` is the generated start block, so
+    // it stops on the `start {` line; native programs stop in main().
+    void startRun() {
+        String args = "-exec-arguments"
+        int i = 0
+        while (i < arguments.length) {
+            args.append(format(" {}", MiParser().quote(arguments[i] as String)))
+            i = i + 1
+        }
+        enqueue(args, "arguments", "")
+        runHits = []
+        i = 0
+        while (i < breakpointEntries.length) {
+            MiValue entry = breakpointEntries[i] as MiValue
+            runHits.append(format("{}={}", entry.field("number").text, entry.field("times").text))
+            i = i + 1
+        }
+        startMissing = false
+        if (breakAtStart && startBreakpoint.equals("")) {
+            enqueue("-break-insert -t main", "start-break", "")
+        }
+        enqueue("-exec-run", "execute", "")
     }
     void restart() {
         if (!loaded || active != null || requests.length > 0 || restarting) {
@@ -912,7 +1039,7 @@ class Cdbg {
             enqueue("-interpreter-exec console \"kill\"", "restart-kill", "")
         } else {
             restarting = false
-            enqueue("-exec-run", "execute", "")
+            startRun()
         }
     }
     // Browsing a caller selects that frame for inspection, not for execution.
@@ -1081,6 +1208,47 @@ class Cdbg {
             i = i + 1
         }
     }
+    // Pending breakpoints have no code yet; installed ones show the function
+    // and hit count so a breakpoint in code that never runs is visible.
+    String breakpointSummary(MiValue item, bool enabled) {
+        String state = "enabled"
+        if (!enabled) { state = "disabled" }
+        if (item.field("pending").text.length > 0) {
+            return format("{} pending {} (not yet installed)", state, item.field("pending").text)
+        }
+        String where = format("{}:{}", item.field("file").text, item.field("line").text)
+        if (item.field("addr").text.equals("<MULTIPLE>")) {
+            where = format("{} (multiple locations)", item.field("original-location").text)
+        }
+        String text = format("{} installed {}", state, where)
+        if (!item.field("func").text.equals("")) { text.append(format(" in {}", item.field("func").text)) }
+        text.append(format(" hits {}", item.field("times").text))
+        return text
+    }
+    // Lists enabled breakpoints whose hit count did not change during the run.
+    int reportUnreached() {
+        int count = 0
+        int i = 0
+        while (i < breakpointEntries.length) {
+            MiValue entry = breakpointEntries[i] as MiValue
+            String number = entry.field("number").text
+            String key = format("{}={}", number, entry.field("times").text)
+            bool same = false
+            int j = 0
+            while (j < runHits.length) {
+                if ((runHits[j] as String).equals(key)) { same = true }
+                j = j + 1
+            }
+            if (same && !number.contains(".") && !entry.field("enabled").text.equals("n") &&
+                !entry.field("disp").text.equals("del")) {
+                log(format("Not reached during this run: #{} {}:{} in {} (that code did not execute)\n", number,
+                    entry.field("file").text, entry.field("line").text, entry.field("func").text))
+                count = count + 1
+            }
+            i = i + 1
+        }
+        return count
+    }
     void showWatch() {
         watchMenu.setVisible(false)
         watchEntry.setText("")
@@ -1092,6 +1260,76 @@ class Cdbg {
     void closeWatch() { watchWindow.setVisible(false) }
     bool watchCloseRequested() { closeWatch()
         return true }
+    void showSetup() {
+        setupStart.setActive(breakAtStart)
+        setupArguments.setText(ArgumentList().display(arguments))
+        if (stateTarget.equals("")) {
+            setupStatus.setText("No target loaded: Break at start becomes this directory's default")
+        } else { setupStatus.setText(format("Settings for {}", stateTarget)) }
+        setupWindow.setVisible(true)
+        setupWindow.present()
+        setupArguments.focus()
+    }
+    void closeSetup() { setupWindow.setVisible(false) }
+    bool setupCloseRequested() { closeSetup()
+        return true }
+    // Apply never restarts a running program: arguments and Break at start
+    // take effect on the next Run (from not started), Restart or Load.
+    void applySetup() {
+        ArgumentList parsed = ArgumentList()
+        if (!parsed.parse(setupArguments.text())) {
+            String message = format("Invalid arguments: {}; previous arguments kept", parsed.error)
+            setupStatus.setText(message)
+            status.setText(message)
+            return
+        }
+        if (stateTarget.equals("") && parsed.values.length > 0) {
+            setupStatus.setText("Load a target before setting program arguments")
+            return
+        }
+        breakAtStart = setupStart.active()
+        arguments = parsed.values
+        argumentText = parsed.display(parsed.values)
+        String message = "Setup applied; takes effect on the next Run, Restart or Load"
+        if (running) {
+            message = "Setup applied; the running program is unchanged; takes effect on the next Run, Restart or Load"
+        }
+        if (stateTarget.equals("")) { defaultChanged = true }
+        else { targetSettings = true }
+        if (!breakAtStart && !startBreakpoint.equals("") && loaded && !running) {
+            enqueue(format("-break-delete {}", startBreakpoint), "break", "")
+            startBreakpoint = ""
+        }
+        saveState(false)
+        if (!stateError.equals("")) { message.append(format("; settings NOT saved: {}", stateError)) }
+        else { message.append(format("; saved to {}", statePath)) }
+        status.setText(message)
+        log(format("{}\n", message))
+        closeSetup()
+    }
+    // Clearing only discards displayed history; the program keeps running and
+    // later output is appended as usual.
+    void clearOutput() {
+        outputMenu.setVisible(false)
+        programOutput.setText("")
+        status.setText("Program Output cleared")
+    }
+    void copyOutput() {
+        outputMenu.setVisible(false)
+        if (!programOutput.hasSelection()) {
+            status.setText("Select Program Output text to copy")
+            return
+        }
+        programOutput.copy()
+        status.setText("Copied Program Output selection")
+    }
+    void copyAllOutput() {
+        outputMenu.setVisible(false)
+        programOutput.selectAll()
+        programOutput.copy()
+        programOutput.setCursor(1, 1)
+        status.setText("Copied all Program Output")
+    }
     void acceptWatch() {
         if (addWatch(watchEntry.text())) { closeWatch() }
     }
@@ -1154,7 +1392,8 @@ class Cdbg {
         if (path.equals("")) { path = frame.field("file").text }
         String line = frame.field("line").text
         location = format("{}:{} ({})", path, line, frame.field("func").text)
-        status.setText(format("Stopped: {}", location))
+        if (atStart) { status.setText(format("Stopped at start: {}", location)) }
+        else { status.setText(format("Stopped: {}", location)) }
         if (path.equals("")) { sourceMessage("Source unavailable: stopped frame has no source path") }
         else { showSource(path, line) }
     }
@@ -1249,6 +1488,14 @@ class Cdbg {
             return
         }
         if (record.result.equals("error")) {
+            if (done.purpose.equals("start-break")) {
+                startMissing = true
+                log(format("Break at start unavailable: {}; running without a start breakpoint\n",
+                    record.data.field("msg").text))
+                sendNext()
+                controls()
+                return
+            }
             if (done.purpose.equals("restore-break")) {
                 stateDiagnostic(format("Could not restore {}: {}; skipped", done.expression,
                     record.data.field("msg").text))
@@ -1321,14 +1568,22 @@ class Cdbg {
             hasRun = false
             running = false
             restarting = false
-            enqueue("-exec-run", "execute", "")
+            startRun()
+        }
+        if (done.purpose.equals("start-break")) {
+            MiValue point = record.data.field("bkpt")
+            startBreakpoint = point.field("number").text
+            startNumber = startBreakpoint
+            log(format("Break at start: temporary breakpoint at {}:{} ({})\n", point.field("file").text,
+                point.field("line").text, point.field("func").text))
         }
         if (record.result.equals("running")) {
             hasRun = true
             running = true
             locals.setText("Target running")
             watches.setText("Target running")
-            status.setText("Running")
+            if (startMissing) { status.setText("Running; Break at start unavailable (no entry symbol)") }
+            else { status.setText("Running") }
         }
         if (done.purpose.equals("locals")) {
             MiValue variables = record.data.field("variables")
@@ -1371,6 +1626,7 @@ class Cdbg {
             breakpointRows = []
             breakpointLocations = []
             String text = ""
+            bool startSeen = false
             int i = 0
             while (i < rows.values.length) {
                 MiValue item = rows.values[i] as MiValue
@@ -1388,12 +1644,18 @@ class Cdbg {
                         j = j + 1
                     }
                 }
-                breakpointLocation(item, "", enabled)
-                text.append(format("#{} {} {}:{} {}\n", item.field("number").text,
-                    item.field("enabled").text, item.field("file").text, item.field("line").text,
-                    item.field("original-location").text))
+                String parentNumber = number.split(".")[0] as String
+                if (parentNumber.equals(startBreakpoint)) { startSeen = true }
+                if (item.field("disp").text.equals("del")) {
+                    text.append(format("#{} start (temporary) {}:{} in {}\n", number, item.field("file").text,
+                        item.field("line").text, item.field("func").text))
+                } else {
+                    breakpointLocation(item, "", enabled)
+                    text.append(format("#{} {}\n", number, breakpointSummary(item, enabled)))
+                }
                 i = i + 1
             }
+            if (!startSeen) { startBreakpoint = "" }
             breaks.setText(text)
             syncBreakpointMarks()
             if (!restoringBreakpoints) { saveState(false) }
@@ -1440,11 +1702,26 @@ class Cdbg {
                 hasRun = false
                 locals.setText("Target exited")
                 watches.setText("Target exited")
-                status.setText(format("Target {} {}", reason, parsed.data.field("exit-code").text))
+                String exitText = format("Target {}", reason)
+                if (!parsed.data.field("exit-code").text.equals("")) {
+                    exitText.append(format(" {}", parsed.data.field("exit-code").text))
+                }
+                int missed = reportUnreached()
+                if (missed > 0) { exitText.append(format("; {} breakpoint(s) not reached", missed)) }
+                startBreakpoint = ""
+                startNumber = ""
+                status.setText(exitText)
             } else {
                 hasRun = true
                 selectedFrame = 0
                 stopCount = stopCount + 1
+                String hit = parsed.data.field("bkptno").text
+                // GDB may delete the temporary breakpoint before *stopped.
+                atStart = !hit.equals("") && hit.equals(startNumber)
+                if (atStart) {
+                    startBreakpoint = ""
+                    startNumber = ""
+                }
                 showLocation(parsed.data.field("frame"))
                 refresh()
             }
