@@ -109,6 +109,10 @@ class Cdbg {
     GtkSource.View breaks
     GtkSource.View console
     GtkSource.View programOutput
+    GtkSource.View runtimeValues
+    String runtimeLocals
+    String runtimeWatches
+    bool valueInspector
     Gtk.Button runButton
     Gtk.Button stepButton
     Gtk.Button nextButton
@@ -318,12 +322,14 @@ class Cdbg {
         setupLayout.append(setupButtons)
         button(setupButtons, "Apply", _self().applySetup)
         button(setupButtons, "Cancel", _self().closeSetup)
-        inspection.appendPage(scroll(locals), "Locals / Arguments")
+        inspection.appendPage(scroll(locals), "Locals / Arguments (Cwhip / Native)")
         inspection.appendPage(scroll(stack), "Stack")
-        inspection.appendPage(scroll(watches), "Watches")
+        inspection.appendPage(scroll(watches), "Watches (Cwhip / Native)")
         inspection.appendPage(scroll(breaks), "Breakpoints")
         inspection.appendPage(scroll(programOutput), "Program Output")
         inspection.appendPage(scroll(console), "Debugger Console")
+        runtimeValues = pane()
+        inspection.appendPage(scroll(runtimeValues), "Runtime Values")
         status = Gtk.Label("Load a local target. GDB only; no attach/remote or LLDB yet.")
         layout.append(status)
         readState()
@@ -548,7 +554,7 @@ class Cdbg {
         int width = stateNumber("width", 1100, 640, 3840)
         window.setDefaultSize(width, stateNumber("height", 760, 400, 2160))
         body.setPosition(stateNumber("pane", 600, 100, width - 100))
-        inspection.setCurrentPage(stateNumber("inspector", 0, 0, 5))
+        inspection.setCurrentPage(stateNumber("inspector", 0, 0, 6))
         String maximized = Gtk.Config().value(stateText, "", "maximized")
         if (maximized.equals("btrue")) { window.setMaximized(true) }
         else { if (!maximized.equals("") && !maximized.equals("bfalse")) {
@@ -874,6 +880,7 @@ class Cdbg {
         hasRun = false
         restarting = false
         executing = false
+        valueInspector = false
         selectedFrame = 0
         stopDetail = ""
         stopPosition = ""
@@ -976,6 +983,12 @@ class Cdbg {
         enqueue("-gdb-set pagination off", "setup", "")
         enqueue("-gdb-set mi-async on", "setup", "")
         enqueue("-gdb-set confirm off", "setup", "")
+        enqueue("-gdb-set host-charset UTF-8", "setup", "")
+        enqueue("-gdb-set may-call-functions off", "setup", "")
+        enqueue("-gdb-set print elements 8", "setup", "")
+        enqueue("-gdb-set print max-depth 2", "setup", "")
+        String script = format("python exec({})", MiParser().quote(terminal.valuesScript()))
+        enqueue(format("-interpreter-exec console {}", MiParser().quote(script)), "value-setup", "")
         enqueue(format("-inferior-tty-set {}", MiParser().quote(terminal.path())), "setup", "")
         enqueue(format("-file-exec-and-symbols {}", MiParser().quote(executable)), "target", "")
         String args = "-exec-arguments"
@@ -1426,15 +1439,29 @@ class Cdbg {
         requests = pendingRequests
         if (active != null && inspection(active)) { active.purpose = "stale" }
         watches.setText("")
+        runtimeLocals = "(Refreshing locals)"
+        runtimeWatches = ""
+        updateRuntimeValues()
         enqueue("-stack-info-frame", "location", "")
-        enqueue("-stack-list-variables --all-values", "locals", "")
+        if (valueInspector) { enqueue("-cdbg-inspect locals", "locals", "") }
+        else { enqueue("-stack-list-variables --all-values", "locals", "") }
         enqueue("-stack-list-frames 0 30", "stack", "")
         int i = 0
         while (i < expressions.length) {
             String expression = expressions[i] as String
-            enqueue(format("-data-evaluate-expression {}", MiParser().quote(expression)), "watch", expression)
+            if (valueInspector) {
+                enqueue(format("-cdbg-inspect watch {}", MiParser().quote(expression)), "watch", expression)
+            } else {
+                watches.setText(format("{}{} = <value inspector unavailable>\n", watches.text(), expression))
+                runtimeWatches.append(format("{} = <value inspector unavailable>\n", expression))
+            }
             i = i + 1
         }
+        updateRuntimeValues()
+    }
+    void updateRuntimeValues() {
+        runtimeValues.setText(format("Locals / Arguments (GDB types and raw values)\n{}\nWatches (GDB types and raw values)\n{}",
+            runtimeLocals, runtimeWatches))
     }
     void showLocation(MiValue frame) {
         String path = frame.field("fullname").text
@@ -1540,6 +1567,14 @@ class Cdbg {
             return
         }
         if (record.result.equals("error")) {
+            if (done.purpose.equals("value-setup")) {
+                log(format("Cwhip value inspector unavailable: {}. Python-enabled GDB with gdb.MICommand is required; native locals only.\n",
+                    record.data.field("msg").text))
+                valueInspector = false
+                sendNext()
+                controls()
+                return
+            }
             if (done.purpose.equals("start-break")) {
                 startMissing = true
                 log(format("Break at start unavailable: {}; running without a start breakpoint\n",
@@ -1562,7 +1597,14 @@ class Cdbg {
             String message = record.data.field("msg").text
             if (done.purpose.equals("watch")) {
                 watches.setText(format("{}{} = <{}>\n", watches.text(), done.expression, message))
+                runtimeWatches.append(format("{} = <{}>\n", done.expression, message))
+                updateRuntimeValues()
             } else {
+                if (done.purpose.equals("locals")) {
+                    locals.setText(format("<{}>", message))
+                    runtimeLocals = format("<{}>", message)
+                    updateRuntimeValues()
+                }
                 if (done.purpose.equals("target")) { loadFailure(message) }
                 else { fail(message) }
                 if (done.purpose.equals("setup") || done.purpose.equals("target") ||
@@ -1576,6 +1618,7 @@ class Cdbg {
             controls()
             return
         }
+        if (done.purpose.equals("value-setup")) { valueInspector = true }
         if (done.purpose.equals("target")) { clearSources() }
         if (done.purpose.equals("execution-frame")) {
             selectedFrame = 0
@@ -1635,20 +1678,33 @@ class Cdbg {
             running = true
             locals.setText("Target running")
             watches.setText("Target running")
+            runtimeValues.setText("Target running")
             if (startMissing) { status.setText("Running; Break at start unavailable (no entry symbol)") }
             else { status.setText("Running") }
         }
         if (done.purpose.equals("locals")) {
             MiValue variables = record.data.field("variables")
             String text = ""
+            runtimeLocals = ""
             int i = 0
             while (i < variables.values.length) {
                 MiValue variable = variables.values[i] as MiValue
-                text.append(format("{} = {}\n", variable.field("name").text, variable.field("value").text))
+                String value = variable.field("friendly").text
+                if (!valueInspector) { value = variable.field("value").text }
+                text.append(format("{} = {}\n", variable.field("name").text, value))
+                String raw = variable.field("raw").text
+                if (!valueInspector) { raw = variable.field("value").text }
+                runtimeLocals.append(format("{} : {} = {}\n", variable.field("name").text,
+                    variable.field("type").text, raw))
                 i = i + 1
             }
             if (text.equals("")) { text = "(No variables in this frame)" }
+            if (record.data.field("truncated").text.equals("true")) {
+                text.append("\n<Locals truncated at 64>")
+                runtimeLocals.append("\n<Locals truncated at 64>")
+            }
             locals.setText(text)
+            updateRuntimeValues()
         }
         if (done.purpose.equals("stack")) {
             MiValue frames = record.data.field("stack")
@@ -1664,7 +1720,10 @@ class Cdbg {
             if (!stack.text().equals(text)) { stack.setText(text) }
         }
         if (done.purpose.equals("watch")) {
-            watches.setText(format("{}{} = {}\n", watches.text(), done.expression, record.data.field("value").text))
+            watches.setText(format("{}{} = {}\n", watches.text(), done.expression, record.data.field("friendly").text))
+            runtimeWatches.append(format("{} : {} = {}\n", done.expression,
+                record.data.field("type").text, record.data.field("raw").text))
+            updateRuntimeValues()
         }
         if (done.purpose.equals("location")) {
             showLocation(record.data.field("frame"))
@@ -1756,6 +1815,7 @@ class Cdbg {
                 hasRun = false
                 locals.setText("Target exited")
                 watches.setText("Target exited")
+                runtimeValues.setText("Target exited")
                 String exitText = format("Target {}", reason)
                 if (!parsed.data.field("exit-code").text.equals("")) {
                     exitText.append(format(" {}", parsed.data.field("exit-code").text))

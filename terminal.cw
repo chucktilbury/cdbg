@@ -15,6 +15,7 @@ class DebugTerminal {
     void _nativeDestroy(handle terminal)
 
     public:
+    String valuesScript()
     DebugTerminal() {
         _native = _nativeOpen()
         _decoder = TerminalProcess.OutputDecoder()
@@ -58,6 +59,7 @@ class DebugTerminal {
     }
 }
 
+String DebugTerminal.valuesScript() from "cwhip_cdbg_values_script"
 handle DebugTerminal._nativeOpen() from "cwhip_cdbg_terminal_open"
 String DebugTerminal._nativePath(handle terminal) from "cwhip_cdbg_terminal_path"
 buffer DebugTerminal._nativeRead(handle terminal) from "cwhip_cdbg_terminal_read"

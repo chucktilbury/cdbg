@@ -10,6 +10,7 @@
 #include <string.h>
 #include <termios.h>
 #include <unistd.h>
+#include "values.h"
 
 extern const CwhipClassMeta cwhip_string_class_meta __attribute__((weak));
 
@@ -39,6 +40,11 @@ static void close_descriptor(CwhipDebugTerminal *terminal, int *descriptor) {
 static void *make_string(const char *text) {
     if (&cwhip_string_class_meta == NULL) return NULL;
     return cwhip_string_new(&cwhip_string_class_meta, text, (uint64_t)strlen(text));
+}
+
+void *cwhip_cdbg_values_script(void *self) {
+    (void)self;
+    return make_string(cdbg_values_script);
 }
 
 static void *make_buffer(const unsigned char *bytes, size_t length) {
