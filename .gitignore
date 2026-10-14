@@ -1,0 +1,10 @@
+/build*/
+/bin/
+/lib/
+/share/
+/lib64/
+/doc/out/
+__pycache__/
+*.pyc
+
+.cdbg.toml
