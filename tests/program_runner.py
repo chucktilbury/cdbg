@@ -2,6 +2,7 @@
 
 import os
 from pathlib import Path
+import shutil
 import subprocess
 
 
@@ -10,9 +11,11 @@ def environment(work: Path) -> dict[str, str]:
     for key in list(env):
         if key.startswith("CWHIP_") or key in ("CC", "DESTDIR"):
             del env[key]
-    for key, directory in (("HOME", "home"), ("XDG_CONFIG_HOME", "xdg")):
+    for key, directory in (("HOME", "home"), ("XDG_CONFIG_HOME", "xdg"),
+                           ("XDG_DATA_HOME", "data"), ("XDG_CACHE_HOME", "cache"),
+                           ("XDG_STATE_HOME", "state"), ("XDG_RUNTIME_DIR", "runtime")):
         path = work / directory
-        path.mkdir(parents=True, exist_ok=True)
+        path.mkdir(mode=0o700, parents=True, exist_ok=True)
         env[key] = str(path)
     env["LC_ALL"] = "C"
     return env
@@ -22,6 +25,16 @@ def invoke(command: list[str], work: Path, env: dict[str, str],
            stdin: str = "", timeout: int = 30) -> subprocess.CompletedProcess[str]:
     result = subprocess.run(command, cwd=work, env=env, input=stdin,
                             text=True, capture_output=True, timeout=timeout)
+    if (result.returncode == 0 and command and Path(command[0]).name == "cwhip" and
+            "-c" not in command and "-o" in command):
+        languages = env.get("CDBG_SOURCEVIEW_LANGUAGES")
+        output_index = command.index("-o") + 1
+        if languages and output_index < len(command):
+            executable = Path(command[output_index])
+            if not executable.is_absolute():
+                executable = work / executable
+            destination = executable.parent / "share/cwhip/modules/sourceview/0.1.0/language-specs"
+            shutil.copytree(languages, destination, dirs_exist_ok=True)
     if any(marker in result.stderr for marker in
            ("AddressSanitizer", "UndefinedBehaviorSanitizer", "runtime error:")):
         raise AssertionError(f"Instrumentation failure:\n{result.stderr}")

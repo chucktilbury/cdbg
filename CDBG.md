@@ -6,19 +6,20 @@ an editor mode or a finished debugger. The Cwhip compiler is still `cwhip`.
 
 ## Build and launch
 
-Install the same GTK 4.10+ and GtkSourceView 5 development dependencies as
-[cedit](https://github.com/chucktilbury/cedit/blob/main/CEDIT.md), plus `gdb` at runtime:
+Install CMake 3.24+, Python 3.11+, GTK 4.10+, GtkSourceView 5 development
+files, and an installed Cwhip 0.0.1 SDK built with GTK and GtkSourceView.
+The debugger build does not use a compiler checkout:
 
 ```sh
-cmake -S . -B build -DCWHIP_GTK=ON -DCWHIP_GTK_SOURCEVIEW=ON
-cmake --build build --target cedit cdbg -j4
-./bin/cdbg examples/debugger.cw
+cmake -S . -B build -DCMAKE_PREFIX_PATH=/path/to/cwhip-sdk
+cmake --build build --target cdbg
+./build/bin/cdbg examples/debugger.cw
 ```
 
-The build stages `<CWHIP_STAGE_PREFIX>/bin/cdbg` (by default `<source>/bin/cdbg`).
-Like cedit, it is not currently a `cmake --install` target and does not install
-desktop metadata. Compiler-only configurations provide a `cdbg` target which
-fails with a clear missing-GUI dependency message.
+Run `cmake --build build --target test-all` for the component's build and test
+suite; `cmake --install build --prefix /path/to/install` installs the
+executable and language resource. See [BUILD.md](doc/BUILD.md) for prerequisites,
+test detection, the optional no-op check and cleaning.
 
 `cdbg [SOURCE.cw|EXECUTABLE [-- ARGS...]]` opens the GUI in the foreground;
 arguments after the target are passed individually to the inferior, without a
@@ -305,10 +306,10 @@ Watches context dialog, tab borders and source-tab close icons are implemented.
 
 ## Checks
 
-With Xvfb, dbus-daemon and GDB installed:
+With Xvfb, dbus-daemon and GDB installed, run the standalone component suite:
 
 ```sh
-ctest --test-dir build -R '^cdbg_' --output-on-failure
+cmake --build build --target test-all
 ```
 
 The suite checks MI quoting/parsing (including fragmented transport input),
@@ -359,13 +360,17 @@ while stopped does not restart).
 The stepping regression drives each toolbar button by click and focused GTK
 keyboard activation, starting at Break at start, a method breakpoint and after
 stack navigation. It checks exact source lines and one stop per activation,
-including actual `RuntimeGc.c` steps, method returns and consecutive caller
-lines. A real instruction-level same-line runtime stop verifies the PC/reason
-display without automatically skipping it. Its raw GDB stdin/stdout transcript
-It also presses Step Over while the post-stop refresh is still pending,
+including method returns and consecutive caller lines. Compiler-internal
+`RuntimeGc.c` source-line checks run only when configured explicitly with
+`-DCDBG_RUNTIME_SOURCE=/path/to/RuntimeGc.c`; otherwise the test reports that
+coverage as excluded and still runs the rest of the stepping session. When
+enabled, a real instruction-level same-line runtime stop verifies the PC/reason
+display without automatically skipping it. The raw GDB stdin/stdout transcript
+is retained in the test work directory as `stepping.mi`.
+The suite also presses Step Over while the post-stop refresh is still pending,
 presses it again before `*running` (one `-exec-next` is sent and the status
 reports the ignored press), and presses Step Out while a stack-frame browse is
-in flight (frame 0 is restored first). is retained in the test work directory as `stepping.mi`.
+in flight (frame 0 is restored first).
 An external-edit check verifies that atomic saving does not overwrite another writer.
 When `xfwm4` is available the private test display also verifies actual
 maximization/restore; its session management is disabled.

@@ -6,11 +6,10 @@ launch local executables, set and manage breakpoints, inspect frames, locals
 and watches, and show both Cwhip-friendly values and their GDB runtime
 representations.
 
-This repository is the first source/history split from the Cwhip monorepo.
-Its standalone build, dependency/version policy, installation and release
-workflow are not yet established. Until those are added, use the integrated
-build instructions in the [Cwhip repository](https://github.com/chucktilbury/cwhip)
-and read the [cdbg guide](CDBG.md).
+This repository is independently buildable against an installed Cwhip SDK; it
+does not require a Cwhip compiler checkout. See [BUILD.md](doc/BUILD.md) for
+standalone configure, build, test, clean and install instructions, and read the
+[cdbg guide](CDBG.md) for controls and behavior.
 
 ## Source
 
@@ -29,12 +28,10 @@ implemented.
 
 ## Requirements and status
 
-The current integrated prototype uses local GDB; its friendly value inspector
-requires Python-enabled GDB with `gdb.MICommand`. It is an active proof of
-concept and compiler-testing workload, not a finished production debugger.
-Independent CMake configuration, tests/CI, install rules, packaging and
-release/version compatibility are follow-up work tracked in the
-[Cwhip Applications project](https://github.com/users/chucktilbury/projects/1).
+The current prototype uses local GDB; its friendly value inspector requires
+Python-enabled GDB with `gdb.MICommand`. It is an active proof of concept and
+compiler-testing workload, not a finished production debugger. Its CMake
+configuration requires the exact Cwhip SDK version `0.0.1`.
 
 ## License
 

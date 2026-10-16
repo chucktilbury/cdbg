@@ -190,24 +190,38 @@ class DebugChecks {
             }
             if (stage == 5) {
                 stepped("stepping.cw", 10)
-                singleStep("Step Into", false)
+                if (System.Process().getEnv("CDBG_RUNTIME_TEST").equals("1")) {
+                    singleStep("Step Into", false)
+                } else {
+                    singleStep("Step Over", false)
+                }
             }
             if (stage == 6) {
-                stepped("RuntimeGc.c", System.Process().getEnv("CDBG_RUNTIME_ENTRY").toInt())
-                require(ui.location.contains("cwhip_gc_require_alive"), "step enters real runtime")
-                require(ui.watches.text().contains("counter = <") &&
-                    !ui.locals.text().contains("fields; members unavailable"),
-                    "native frame keeps native values and reports out-of-scope Cwhip watches")
-                previousPc = ui.stopAddress
-                stops = ui.stopCount
-                ui.execute("-exec-step-instruction", "Step Instruction")
-                stage = 60
-                return true
+                if (System.Process().getEnv("CDBG_RUNTIME_TEST").equals("1")) {
+                    stepped("RuntimeGc.c", System.Process().getEnv("CDBG_RUNTIME_ENTRY").toInt())
+                    require(ui.location.contains("cwhip_gc_require_alive"), "step enters real runtime")
+                    require(ui.watches.text().contains("counter = <") &&
+                        !ui.locals.text().contains("fields; members unavailable"),
+                        "native frame keeps native values and reports out-of-scope Cwhip watches")
+                    previousPc = ui.stopAddress
+                    stops = ui.stopCount
+                    ui.execute("-exec-step-instruction", "Step Instruction")
+                    stage = 60
+                    return true
+                }
+                stepped("stepping.cw", 11)
+                singleStep("Step Over", true)
             }
             if (stage == 7) {
-                stepped("RuntimeGc.c", System.Process().getEnv("CDBG_RUNTIME_CALL").toInt())
-                ui.inspection.setCurrentPage(1)
-                stage = 30
+                if (System.Process().getEnv("CDBG_RUNTIME_TEST").equals("1")) {
+                    stepped("RuntimeGc.c", System.Process().getEnv("CDBG_RUNTIME_CALL").toInt())
+                    ui.inspection.setCurrentPage(1)
+                    stage = 30
+                    return true
+                }
+                stepped("stepping.cw", 12)
+                singleStep("Step Over", false)
+                stage = 15
                 return true
             }
             if (stage == 8) {
@@ -1428,16 +1442,21 @@ def main() -> None:
     parser.add_argument("--gdb")
     parser.add_argument("--clang")
     parser.add_argument("--xvfb")
-    parser.add_argument("--group", choices=("parser", "session", "build"), required=True)
+    parser.add_argument("--include", type=Path, required=True)
+    parser.add_argument("--runtime-source", type=Path)
+    parser.add_argument("--sourceview-languages", type=Path)
+    parser.add_argument("--group", choices=("parser", "session", "noop"), required=True)
     args = parser.parse_args()
     args.compiler = args.compiler.resolve()
     args.work.mkdir(parents=True, exist_ok=True)
-    if args.group == "build":
+    if args.group == "noop":
+        env = {key: value for key, value in os.environ.items()
+               if key not in ("MAKEFLAGS", "MFLAGS", "MAKELEVEL")}
         command = [args.cmake, "--build", str(args.build), "--target", "cdbg"]
-        subprocess.run(command, check=True, timeout=120)
+        subprocess.run(command, check=True, env=env, timeout=120)
         outputs = [args.executable, args.compiler]
         before = [path.stat().st_mtime_ns for path in outputs]
-        subprocess.run(command, check=True, timeout=120)
+        subprocess.run(command, check=True, env=env, timeout=120)
         assert before == [path.stat().st_mtime_ns for path in outputs], "No-op cdbg rebuild"
         result = subprocess.run([str(args.executable), "--help"], capture_output=True, text=True,
                                 timeout=10)
@@ -1447,6 +1466,8 @@ def main() -> None:
     with tempfile.TemporaryDirectory(dir=args.work.resolve(), prefix="cdbg-") as directory:
         work = Path(directory)
         env = environment(work)
+        if args.sourceview_languages:
+            env["CDBG_SOURCEVIEW_LANGUAGES"] = str(args.sourceview_languages.resolve())
         shutil.copy(args.source.parent / "mi.cw", work / "mi.cw")
         shutil.copy(args.source.parent / "terminal.cw", work / "terminal.cw")
         source = work / "checks.cw"
@@ -1459,18 +1480,21 @@ def main() -> None:
             assert not result.stderr, result.stderr
             return
         source.write_text(args.source.read_text().split("\nstart {")[0] + DRIVER)
-        root = args.source.resolve().parents[2]
+        root = args.source.resolve().parent.parent
         fixture = work / "ui.o"
         terminal = work / "terminal.o"
         gtk_flags = subprocess.check_output(
             ["pkg-config", "--cflags", "gtk4", "gtksourceview-5"], text=True).split()
         subprocess.run([args.clang, "-g", "-c", str(root / "tests/cdbg_ui_fixture.c"),
-                        "-I", str(root / "include"), *gtk_flags, "-o", str(fixture)], check=True)
+                        "-I", str(args.include.resolve()), *gtk_flags, "-o", str(fixture)], check=True)
         subprocess.run([sys.executable, str(args.source.parent / "embed_values.py"),
                         str(args.source.parent / "values.py"), str(work / "values.h")], check=True)
         subprocess.run([args.clang, "-c", str(args.source.parent / "terminal.c"),
-                        "-I", str(root / "include"), "-I", str(work), "-o", str(terminal)], check=True)
+                        "-I", str(args.include.resolve()), "-I", str(work), "-o", str(terminal)], check=True)
         compile_program(args.compiler, source, binary, work, env, [fixture, terminal])
+        if args.sourceview_languages:
+            assert (work / "share/cwhip/modules/sourceview/0.1.0/language-specs/cwhip.lang").is_file(), (
+                "standalone test executable needs its installed GtkSourceView language resource")
         (work / "helper.c").write_text(
             "int helper(int value) {\n    int doubled = value * 2;\n    return doubled;\n}\n")
         c_source = work / 'target with "quotes".c'
@@ -1612,18 +1636,26 @@ def main() -> None:
         proxy.write_text(f"#!{sys.executable}\n" + MI_TRACE)
         proxy.chmod(0o700)
         trace = work / "stepping.mi"
-        runtime_lines = (root / "src/RuntimeGc.c").read_text().splitlines()
-        entry = next(i for i, line in enumerate(runtime_lines, 1)
-                     if line.startswith("void cwhip_gc_require_alive("))
-        runtime_entry = next(i for i in range(entry, entry + 8)
-                             if "if (object == NULL)" in runtime_lines[i - 1])
-        runtime_call = next(i for i in range(entry, entry + 12)
-                            if "HeapNode *node = find_containing_object" in runtime_lines[i - 1])
+        runtime_test = args.runtime_source is not None
+        if runtime_test:
+            runtime_lines = args.runtime_source.read_text().splitlines()
+            entry = next(i for i, line in enumerate(runtime_lines, 1)
+                         if line.startswith("void cwhip_gc_require_alive("))
+            runtime_entry = next(i for i in range(entry, entry + 8)
+                                 if "if (object == NULL)" in runtime_lines[i - 1])
+            runtime_call = next(i for i in range(entry, entry + 12)
+                                if "HeapNode *node = find_containing_object" in runtime_lines[i - 1])
+        else:
+            print("EXCLUDED: compiler-internal RuntimeGc.c source-line stepping "
+                  "(pass --runtime-source to enable)", file=sys.stderr)
         with headless(args.xvfb, work, env) as gtk_env:
             gtk_env.update(CDBG_TEST_MODE="stepping", CDBG_TEST_TARGET=str(stepping_source),
                            CDBG_TEST_SOURCE=str(stepping_source), CDBG_COMPILER=str(args.compiler),
                            CDBG_GDB=str(proxy), CDBG_REAL_GDB=args.gdb, CDBG_MI_TRACE=str(trace),
-                           CDBG_RUNTIME_ENTRY=str(runtime_entry), CDBG_RUNTIME_CALL=str(runtime_call))
+                           CDBG_RUNTIME_TEST="1" if runtime_test else "0")
+            if runtime_test:
+                gtk_env.update(CDBG_RUNTIME_ENTRY=str(runtime_entry),
+                               CDBG_RUNTIME_CALL=str(runtime_call))
             result = invoke([str(binary)], stepping_work, gtk_env, timeout=45)
             transcript = trace.read_text() if trace.exists() else "(no MI trace)"
             # Keep the last live transcript available even when the temp test
@@ -1635,14 +1667,15 @@ def main() -> None:
                         if line.startswith("> ")]
             steps = [line for line in commands
                      if any(command in line for command in ("-exec-next", "-exec-step", "-exec-finish"))]
-            assert len(steps) == 21, (steps, transcript)
+            assert len(steps) == (21 if runtime_test else 13), (steps, transcript)
             browse = max(i for i, line in enumerate(commands) if line.endswith("-stack-select-frame 1"))
             after = [line.lstrip("0123456789") for line in commands[browse + 1:]]
             finish = after.index("-exec-finish")
             assert "-stack-select-frame 0" in after[:finish] and not any(
                 line.startswith("-exec-") for line in after[:finish]), commands[browse:]
             assert "-stack-select-frame 0" in transcript, transcript
-            assert transcript.count('reason="function-finished"') == 3, transcript
+            assert transcript.count('reason="function-finished"') == (
+                3 if runtime_test else 2), transcript
 
         def state_run(mode: str, target: Path, debug_source: Path, line: int,
                       state_env: dict[str, str], cwd: Path) -> None:

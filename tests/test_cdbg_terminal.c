@@ -45,6 +45,7 @@ extern void *cwhip_cdbg_terminal_read(void *self, void *terminal);
 extern void cwhip_cdbg_terminal_close(void *self, void *terminal);
 extern void *cwhip_cdbg_terminal_error(void *self, void *terminal);
 extern void cwhip_cdbg_terminal_destroy(void *self, void *terminal);
+extern void *cwhip_cdbg_values_script(void *self);
 
 static int64_t monotonic_milliseconds(void) {
     struct timespec now;
@@ -57,7 +58,23 @@ static void release_buffer(CwhipBuffer *buffer) {
     free(buffer);
 }
 
-int main(void) {
+int main(int argc, char **argv) {
+    assert(argc == 2);
+    FILE *source = fopen(argv[1], "rb");
+    assert(source != NULL);
+    assert(fseek(source, 0, SEEK_END) == 0);
+    long source_length = ftell(source);
+    assert(source_length >= 0);
+    assert(fseek(source, 0, SEEK_SET) == 0);
+    char *expected_script = (char *)calloc((size_t)source_length + 1, 1);
+    assert(expected_script != NULL);
+    assert(fread(expected_script, 1, (size_t)source_length, source) == (size_t)source_length);
+    assert(fclose(source) == 0);
+    char *embedded_script = (char *)cwhip_cdbg_values_script(NULL);
+    assert(embedded_script != NULL && strcmp(embedded_script, expected_script) == 0);
+    free(embedded_script);
+    free(expected_script);
+
     void *terminal = cwhip_cdbg_terminal_open(NULL);
     assert(terminal != NULL);
     assert(((char *)cwhip_cdbg_terminal_error(NULL, terminal))[0] == '\0');

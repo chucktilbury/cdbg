@@ -1,0 +1,106 @@
+cmake_minimum_required(VERSION 3.24)
+project(CwhipDebugger VERSION 0.0.1 LANGUAGES C)
+
+if(CMAKE_SOURCE_DIR STREQUAL CMAKE_BINARY_DIR)
+    message(FATAL_ERROR "Use an out-of-source build: cmake -S . -B build")
+endif()
+
+include(GNUInstallDirs)
+find_package(Cwhip 0.0.1 EXACT CONFIG REQUIRED)
+cwhip_require_sourceview()
+
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+
+set(CDBG_GENERATED_VALUES "${CMAKE_CURRENT_BINARY_DIR}/values.h")
+add_custom_command(
+    OUTPUT "${CDBG_GENERATED_VALUES}"
+    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/src/embed_values.py"
+            "${CMAKE_CURRENT_SOURCE_DIR}/src/values.py" "${CDBG_GENERATED_VALUES}"
+    DEPENDS src/embed_values.py src/values.py
+    VERBATIM)
+
+add_custom_target(cdbg_values_header DEPENDS "${CDBG_GENERATED_VALUES}")
+add_library(cdbg_native OBJECT src/terminal.c)
+set_target_properties(cdbg_native PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED YES)
+add_dependencies(cdbg_native cdbg_values_header)
+target_include_directories(cdbg_native PRIVATE "${Cwhip_INCLUDE_DIR}" "${CMAKE_CURRENT_BINARY_DIR}")
+
+cwhip_add_program(cdbg
+    SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/src/cdbg.cw"
+    OBJECTS $<TARGET_OBJECTS:cdbg_native>
+    DEPENDS cdbg_native cdbg_values_header)
+get_target_property(CDBG_EXECUTABLE cdbg CWHIP_EXECUTABLE)
+
+install(PROGRAMS "${CDBG_EXECUTABLE}" DESTINATION "${CMAKE_INSTALL_BINDIR}")
+
+include(CTest)
+if(BUILD_TESTING)
+    set(CDBG_TEST_WORK "${CMAKE_CURRENT_BINARY_DIR}/test-work")
+    add_executable(cdbg_terminal_test tests/test_cdbg_terminal.c src/terminal.c
+                   "${CDBG_GENERATED_VALUES}")
+    set_target_properties(cdbg_terminal_test PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED YES)
+    target_compile_options(cdbg_terminal_test PRIVATE -UNDEBUG)
+    target_include_directories(cdbg_terminal_test PRIVATE
+        "${Cwhip_INCLUDE_DIR}" "${CMAKE_CURRENT_BINARY_DIR}")
+    add_dependencies(cdbg_terminal_test cdbg_values_header)
+    add_test(NAME cdbg_terminal
+        COMMAND cdbg_terminal_test "${CMAKE_CURRENT_SOURCE_DIR}/src/values.py")
+
+    add_test(NAME cdbg_parser
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_cdbg.py"
+            --group parser --compiler "${Cwhip_COMPILER}"
+            --source "${CMAKE_CURRENT_SOURCE_DIR}/src/cdbg.cw"
+            --include "${Cwhip_INCLUDE_DIR}" --work "${CDBG_TEST_WORK}/parser")
+
+    find_program(CDBG_GDB_EXECUTABLE NAMES gdb)
+    find_program(CDBG_XVFB_EXECUTABLE NAMES Xvfb)
+    find_program(CDBG_DBUS_DAEMON_EXECUTABLE NAMES dbus-daemon)
+    if(CDBG_GDB_EXECUTABLE AND CDBG_XVFB_EXECUTABLE AND CDBG_DBUS_DAEMON_EXECUTABLE)
+        set(CDBG_SESSION_ARGS
+            --group session --compiler "${Cwhip_COMPILER}"
+            --source "${CMAKE_CURRENT_SOURCE_DIR}/src/cdbg.cw"
+            --include "${Cwhip_INCLUDE_DIR}" --work "${CDBG_TEST_WORK}/session"
+            --sourceview-languages "${Cwhip_MODULE_DIR}/sourceview/0.1.0/language-specs"
+            --executable "${CDBG_EXECUTABLE}" --gdb "${CDBG_GDB_EXECUTABLE}"
+            --clang "${Cwhip_CLANG_EXECUTABLE}" --xvfb "${CDBG_XVFB_EXECUTABLE}")
+        set(CDBG_RUNTIME_SOURCE "" CACHE FILEPATH
+            "Optional compiler RuntimeGc.c source for internal source-line stepping coverage")
+        if(CDBG_RUNTIME_SOURCE)
+            if(NOT EXISTS "${CDBG_RUNTIME_SOURCE}")
+                message(FATAL_ERROR "CDBG_RUNTIME_SOURCE does not exist: ${CDBG_RUNTIME_SOURCE}")
+            endif()
+            list(APPEND CDBG_SESSION_ARGS --runtime-source "${CDBG_RUNTIME_SOURCE}")
+        endif()
+        add_test(NAME cdbg_session
+            COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_cdbg.py"
+                ${CDBG_SESSION_ARGS})
+        if(NOT CDBG_RUNTIME_SOURCE)
+            message(STATUS "cdbg runtime-source stepping excluded (set CDBG_RUNTIME_SOURCE to enable)")
+        endif()
+    else()
+        message(STATUS "cdbg session tests excluded: require gdb, Xvfb, and dbus-daemon")
+    endif()
+
+    add_custom_target(check-noop
+        COMMAND "${CMAKE_COMMAND}" -E env "PYTHONDONTWRITEBYTECODE=1"
+            "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_cdbg.py"
+            --group noop --compiler "${Cwhip_COMPILER}"
+            --source "${CMAKE_CURRENT_SOURCE_DIR}/src/cdbg.cw"
+            --include "${Cwhip_INCLUDE_DIR}" --work "${CDBG_TEST_WORK}/noop"
+            --executable "${CDBG_EXECUTABLE}" --build "${CMAKE_CURRENT_BINARY_DIR}"
+            --cmake "${CMAKE_COMMAND}"
+        DEPENDS cdbg
+        USES_TERMINAL)
+    add_custom_target(test-all
+        COMMAND "${CMAKE_CTEST_COMMAND}" --test-dir "${CMAKE_CURRENT_BINARY_DIR}"
+            --parallel 1 --output-on-failure
+        DEPENDS cdbg cdbg_terminal_test
+        USES_TERMINAL)
+    get_property(cdbg_tests DIRECTORY PROPERTY TESTS)
+    set_tests_properties(${cdbg_tests} PROPERTIES TIMEOUT 600
+        ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
+endif()
+
+set_property(DIRECTORY APPEND PROPERTY ADDITIONAL_CLEAN_FILES
+    "${CMAKE_CURRENT_BINARY_DIR}/test-work"
+    "${CMAKE_CURRENT_BINARY_DIR}/values.h")
