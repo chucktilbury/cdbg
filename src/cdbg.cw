@@ -4,6 +4,17 @@ import system
 include "mi.cw"
 include "terminal.cw"
 
+class DebugDiagnostic {
+    String header(String severity, String code, String text) {
+        return format("cdbg: {}[{}]: {}", severity, code, text)
+    }
+    String emit(String severity, String code, String text) {
+        String message = header(severity, code, text)
+        System.StandardIO().writeErrorLine(message)
+        return message
+    }
+}
+
 class DebugRequest {
     String token
     String command
@@ -493,8 +504,9 @@ class Cdbg {
         restartButton.setSensitive(loaded && active == null && requests.length == 0 && !restarting)
     }
     void stateDiagnostic(String text) {
-        log(format("State: {}\n", text))
-        System.StandardIO().writeErrorLine(format("cdbg state: {}", text))
+        String message = DebugDiagnostic().emit("warning", "CDBG2001",
+            format("{}: {}", statePath, text))
+        log(format("{}\n", message))
     }
     int stateNumber(String key, int fallback, int minimum, int maximum) {
         String raw = Gtk.Config().value(stateText, "", key)
@@ -724,7 +736,8 @@ class Cdbg {
         if (terminal == null) { return }
         programLog(terminal.read())
         if (!terminal.error().equals("")) {
-            fail(format("Program output transport failed: {}", terminal.error()))
+            failWith("CDBG3003", format("Program output transport for {} failed: {}; reload the target to retry",
+                targetPath, terminal.error()))
         }
     }
     // Presses refused while an execution command is pending are expected user
@@ -734,17 +747,24 @@ class Cdbg {
         log(format("{}\n", text))
     }
     void fail(String text) {
+        failWith("CDBG1000", text)
+    }
+    void failWith(String code, String text) {
         failure = text
-        System.StandardIO().writeErrorLine(format("cdbg: {}", text))
+        String message = DebugDiagnostic().emit("error", code, text)
         if (window != null && !window.disposed()) {
-            status.setText(format("Error: {}", text))
-            log(format("Error: {}\n", text))
+            status.setText(message)
+            log(format("{}\n", message))
         }
     }
     void loadFailure(String text) {
-        fail(text)
+        fileFailure("CDBG1001", text)
+    }
+    void fileFailure(String code, String text) {
+        failWith(code, text)
         if (window != null && !window.disposed()) {
-            Gtk.AlertDialog().show(window, "Could not load file", text)
+            Gtk.AlertDialog().show(window, "Could not load file",
+                DebugDiagnostic().header("error", code, text))
         }
     }
     // The source notebook always keeps at least one page: a message page
@@ -849,10 +869,10 @@ class Cdbg {
     void cleanup() {
         if (!temporary.equals("")) {
             if (System.FileSystem().exists(executable) && !System.FileSystem().remove(executable)) {
-                fail(format("Could not remove temporary executable {}", executable))
+                failWith("CDBG9001", format("Could not remove temporary executable {}; remove it manually", executable))
             }
             if (!System.FileSystem().rmdir(temporary)) {
-                fail(format("Could not remove temporary directory {}", temporary))
+                failWith("CDBG9001", format("Could not remove temporary build directory {}; remove it manually", temporary))
             }
             temporary = ""
         }
@@ -939,7 +959,8 @@ class Cdbg {
             String input = executable
             if (!readableText(input)) { return }
             temporary = System.FileSystem().tempDir()
-            if (temporary.equals("")) { fail("Could not create a temporary compilation directory")
+            if (temporary.equals("")) { failWith("CDBG3001",
+                format("Could not create a temporary build directory for {}; check temporary-directory permissions and free space", input))
                 return }
             executable = System.FileSystem().join(temporary, "target")
             compilerOutput = ""
@@ -949,12 +970,16 @@ class Cdbg {
             mode = 1
         } else { startDebugger() }
         if (process == null || !process.started()) {
-            if (process != null) { fail(process.error()) }
+            if (mode == 1 && process != null) { failWith("CDBG3001",
+                format("Could not start compiler {} for {}: {}; check CDBG_COMPILER or PATH",
+                    compiler(), targetPath, process.error())) }
             if (process != null) { process.close()
                 process = null }
             cleanup()
             if (terminal != null) { terminal.close()
                 terminal = null }
+            mode = 0
+            controls()
             return
         }
         pollToken = Gtk.Application().post(_self().poll)
@@ -962,7 +987,8 @@ class Cdbg {
     void startDebugger() {
         terminal = DebugTerminal()
         if (!terminal.error().equals("")) {
-            fail(format("Could not allocate program output terminal: {}", terminal.error()))
+            failWith("CDBG3003", format("Could not allocate program output terminal for {}: {}; check PTY availability",
+                targetPath, terminal.error()))
             terminal.close()
             terminal = null
             cleanup()
@@ -977,7 +1003,9 @@ class Cdbg {
         output = Process.OutputDecoder()
         errors = Process.OutputDecoder()
         pending = ""
-        if (!process.started()) { fail(format("Could not start GDB: {}", process.error()))
+        if (!process.started()) { failWith("CDBG3002",
+            format("Could not start GDB {} for {}: {}; check CDBG_GDB or PATH",
+                gdb, targetPath, process.error()))
             return }
         status.setText("Starting GDB...")
         enqueue("-gdb-set pagination off", "setup", "")
@@ -1001,7 +1029,7 @@ class Cdbg {
         enqueue("-file-list-exec-source-files", "sources", "")
     }
     void enqueue(String command, String purpose, String expression) {
-        if (requests.length >= 256) { fail("GDB request queue is full")
+        if (requests.length >= 256) { failWith("CDBG3004", "GDB request queue is full; wait for pending commands before retrying")
             return }
         sequence = sequence + 1
         requests.append(DebugRequest(format("{}", sequence), command, purpose, expression))
@@ -1012,12 +1040,21 @@ class Cdbg {
         active = requests[0] as DebugRequest
         requests = requests[1:]
         if (!process.write(format("{}{}\n", active.token, active.command))) {
-            fail(format("GDB command write failed: {}", process.inputError()))
+            failWith("CDBG3003", format("GDB command write for {} failed: {}; reload the target to retry",
+                targetPath, process.inputError()))
             active = null
             requests = []
             loaded = false
         }
         controls()
+    }
+    String processOutcome() {
+        String reason = format("process state {}", process.state())
+        if (process.state() == Process.AsyncProcess.EXITED) {
+            reason = format("exit {}", process.exitCode())
+        }
+        if (!process.error().equals("")) { reason.append(format(": {}", process.error())) }
+        return reason
     }
     bool stopped() {
         if (!loaded || running || !hasRun) { fail("This operation requires a stopped target")
@@ -1555,7 +1592,7 @@ class Cdbg {
     }
     void response(MiParser record) {
         if (active == null || !record.token.equals(active.token)) {
-            fail("Unexpected GDB response token")
+            failWith("CDBG3004", format("Unexpected GDB response token for {}; reload the target to retry", targetPath))
             endSession()
             return
         }
@@ -1605,8 +1642,10 @@ class Cdbg {
                     runtimeLocals = format("<{}>", message)
                     updateRuntimeValues()
                 }
-                if (done.purpose.equals("target")) { loadFailure(message) }
-                else { fail(message) }
+                message = format("GDB {} for {} failed: {}; see Debugger Console",
+                    done.command, targetPath, message)
+                if (done.purpose.equals("target")) { fileFailure("CDBG3002", message) }
+                else { failWith("CDBG3002", message) }
                 if (done.purpose.equals("setup") || done.purpose.equals("target") ||
                     done.purpose.equals("loaded")) {
                     requests = []
@@ -1784,7 +1823,7 @@ class Cdbg {
             // Inferior stdout can arrive unframed on GDB's own output pipe.
             if (line.startsWith("^") || line.startsWith("*stopped") ||
                 (active != null && line.startsWith(format("{}^", active.token)))) {
-                fail(format("Malformed GDB record: {}", line))
+                failWith("CDBG3004", format("Malformed GDB record for {}: {}", targetPath, line))
                 endSession()
             } else { log(format("{}\n", line)) }
             return
@@ -1862,7 +1901,7 @@ class Cdbg {
     void consume(String chunk) {
         pending.append(chunk)
         if (pending.length > 1048576) {
-            fail("GDB record exceeded the 1 MiB prototype limit")
+            failWith("CDBG3004", format("GDB record for {} exceeded the 1 MiB prototype limit", targetPath))
             endSession()
             return
         }
@@ -1883,7 +1922,8 @@ class Cdbg {
             return
         }
         if (mode == 2 && !process.inputError().equals("")) {
-            fail(format("GDB stdin failed: {}", process.inputError()))
+            failWith("CDBG3003", format("GDB stdin for {} failed: {}; reload the target to retry",
+                targetPath, process.inputError()))
             endSession()
             return
         }
@@ -1906,23 +1946,32 @@ class Cdbg {
                     compilerOutput.append(output.finish())
                     compilerOutput.append(errors.finish())
                     bool success = process.state() == Process.AsyncProcess.EXITED && process.exitCode() == 0
+                    String reason = processOutcome()
                     process.close()
                     process = null
                     log(compilerOutput)
-                    if (!success) { loadFailure("Cwhip -g compilation failed; see Debugger Console")
+                    if (!success) { fileFailure("CDBG3001",
+                        format("Cwhip -g compilation of {} failed ({}); see Debugger Console for compiler details",
+                            targetPath, reason))
                         cleanup()
+                        mode = 0
+                        controls()
                         return }
                     startDebugger()
                     if (process == null || !process.started()) {
                         if (process != null) { process.close()
                             process = null }
+                        if (terminal != null) { terminal.close()
+                            terminal = null }
                         cleanup()
+                        mode = 0
+                        controls()
                         return }
                 } else {
                     consume(output.finish())
                     if (process == null) { return }
                     log(errors.finish())
-                    String error = process.error()
+                    String error = processOutcome()
                     process.close()
                     process = null
                     loaded = false
@@ -1930,7 +1979,8 @@ class Cdbg {
                     requests = []
                     active = null
                     controls()
-                    fail(format("GDB session ended unexpectedly: {}", error))
+                    failWith("CDBG3002", format("GDB session for {} ended unexpectedly ({}); reload the target to retry",
+                        targetPath, error))
                     endSession()
                     return
                 }
@@ -1946,9 +1996,21 @@ class Cdbg {
 Cdbg Cdbg._self() from "cwhip_gtk_self"
 
 start {
-    if (System.Process().arg(1).equals("--help")) {
+    String target = System.Process().arg(1)
+    if ((target.equals("--help") && System.Process().argc() != 2) ||
+        (target.startsWith("-") && !target.equals("--help"))) {
+        DebugDiagnostic().emit("error", "CDBG0001",
+            format("Unexpected option {}; use cdbg --help for usage (prefix a target beginning with '-' with ./)", target))
+        System.Process().exit(2)
+    }
+    if (target.equals("--help")) {
         print("Usage: cdbg [SOURCE.cw|EXECUTABLE [-- ARGS...]]\nLocal GDB/MI GTK prototype. Sources compile with -g. No LLDB, remote, or attach.\n")
     } else {
+        if (System.Process().argc() > 1 && !System.FileSystem().isFile(target)) {
+            DebugDiagnostic().emit("error", "CDBG1001",
+                format("Target is not a local file: {}; choose an existing source or executable file", target))
+            System.Process().exit(1)
+        }
         Gtk.Application app = Gtk.Application("org.cwhip.Cdbg")
         Cdbg debugger = Cdbg()
         app.onActivate(debugger.activate)

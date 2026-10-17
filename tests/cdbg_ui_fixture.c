@@ -1,9 +1,21 @@
+#define _GNU_SOURCE
+
 #include <cwhip/Stdlib.h>
 #include <gtk/gtk.h>
 #include <gtksourceview/gtksource.h>
 #include <math.h>
+#include <errno.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+
+int cdbg_fixture_posix_openpt(int flags) {
+    if (g_strcmp0(getenv("CDBG_TEST_MODE"), "terminal-failure") == 0) {
+        errno = EMFILE;
+        return -1;
+    }
+    return posix_openpt(flags);
+}
 
 static GtkWindow *debugger_window(void) {
     GList *windows = gtk_application_get_windows(

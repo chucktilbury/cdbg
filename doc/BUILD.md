@@ -135,6 +135,14 @@ transport and exact embedded inspector-byte checks, plus GUI/GDB sessions when
 GDB, Xvfb and `dbus-daemon` are found during configuration. CTest itself never
 starts a nested build.
 
+`cdbg_cli` checks stdout/stderr separation and exit status for help, invalid
+options and missing/non-file targets without a display. `cdbg_session` covers
+failed compiler launch/compilation, unchanged upstream compiler details,
+GDB startup/session/protocol failures and injected PTY allocation failure,
+alongside existing source-tab/session preservation and saved-state regressions.
+The adopted codes and intentional legacy boundaries are documented in the
+[diagnostics guide](../CDBG.md#diagnostics-and-exit-status).
+
 GTK fixtures use a private X display and session bus, with `GIO_USE_VFS=local`
 and `GIO_USE_VOLUME_MONITOR=unix` set before either service or the application
 starts. This prevents installed GVFS services from auto-activating on the test

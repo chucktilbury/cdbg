@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Adopt shared plain-text diagnostics at CLI and representative GUI
+  load/compiler/GDB/transport boundaries using stable `CDBG` category codes.
+  Keep upstream output, existing interactive exit behavior and session/tab
+  preservation on rejected opens. Reject usage errors (2) and missing CLI
+  targets (1) before GTK starts. Include target/path, reason and applicable
+  recovery guidance in failure summaries; classify saved-state issues as warnings.
+- Cover headless CLI channels/exits, compiler startup/failure (including the
+  new upstream header), GDB startup/exit/protocol and PTY allocation failures.
+  Assert exact owned stderr categories without allowing GTK/GVFS noise.
+  Let test alerts finish dismissal before closing their parent, and release
+  the PTY if GDB startup fails after successful compilation.
 - Discover installed SDKs using `CWHIP_SDK` > shared user settings `sdk_prefix`
   > normal CMake discovery, with safe TOML parsing and explicit selection errors.
   Export settings-selected SDKs to the project shell and cover precedence,
