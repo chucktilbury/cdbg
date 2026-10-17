@@ -36,6 +36,8 @@ install(PROGRAMS "${CDBG_EXECUTABLE}" DESTINATION "${CMAKE_INSTALL_BINDIR}")
 include(CTest)
 if(BUILD_TESTING)
     set(CDBG_TEST_WORK "${CMAKE_CURRENT_BINARY_DIR}/test-work")
+    add_test(NAME cdbg_gtk_environment
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_gtk_support.py")
     add_executable(cdbg_terminal_test tests/test_cdbg_terminal.c src/terminal.c
                    "${CDBG_GENERATED_VALUES}")
     set_target_properties(cdbg_terminal_test PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED YES)

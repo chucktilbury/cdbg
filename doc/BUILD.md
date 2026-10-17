@@ -44,6 +44,17 @@ transport and exact embedded inspector-byte checks, plus GUI/GDB sessions when
 GDB, Xvfb and `dbus-daemon` are found during configuration. CTest itself never
 starts a nested build.
 
+GTK fixtures use a private X display and session bus, with `GIO_USE_VFS=local`
+and `GIO_USE_VOLUME_MONITOR=unix` set before either service or the application
+starts. This prevents installed GVFS services from auto-activating on the test
+bus and polluting application diagnostics; stderr assertions remain strict.
+The `cdbg_gtk_environment` test checks this setup without requiring GTK or GVFS.
+To check GUI/GDB session stability on a host with GVFS installed, run:
+
+```sh
+ctest --test-dir build -R '^cdbg_session$' --repeat until-fail:20 --output-on-failure
+```
+
 Compiler-internal `RuntimeGc.c` source-line stepping is excluded unless that
 source is explicitly provided:
 
