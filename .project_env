@@ -1,0 +1,31 @@
+# Project-owned interactive Bash configuration, loaded by scripts/setup.
+if [[ -r "$HOME/.bashrc" ]]; then
+    source "$HOME/.bashrc"
+fi
+
+export HISTCONTROL=ignoreboth:erasedups
+if [[ -n ${CWHIP_SDK:-} ]]; then
+    export PATH="$CWHIP_SDK/bin:$PATH"
+fi
+export PATH="$_PROJECT_LOC/bin:$_PROJECT_LOC/scripts:$PATH"
+status() { git -C "$_PROJECT_LOC" status "$@"; }
+add() {
+    if (( $# )); then
+        git -C "$_PROJECT_LOC" add "$@"
+    else
+        git -C "$_PROJECT_LOC" add .
+    fi
+}
+commit() { git -C "$_PROJECT_LOC" commit "$@"; }
+push() { git -C "$_PROJECT_LOC" push "$@"; }
+all() { add -A && commit "$@" && push; }
+dbg() {
+    if (( $# == 0 )); then
+        printf 'Usage: dbg [SOURCE.cw|EXECUTABLE [-- ARGS...]]\n' >&2
+        return 2
+    fi
+    cdbg "$@"
+}
+
+PS1="[$_PROJECT_NAME:$_BUILD_TYPE] \w \$ "
+cd -- "$_PROJECT_LOC/build"

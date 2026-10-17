@@ -5,9 +5,27 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_BINARY_DIR)
     message(FATAL_ERROR "Use an out-of-source build: cmake -S . -B build")
 endif()
 
+set(CWHIP_BIN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/bin" CACHE PATH "Application executable directory")
+set(CWHIP_LIB_DIR "${CMAKE_CURRENT_SOURCE_DIR}/lib" CACHE PATH "Native library directory")
+get_filename_component(CWHIP_BIN_DIR "${CWHIP_BIN_DIR}" ABSOLUTE BASE_DIR "${CMAKE_BINARY_DIR}")
+get_filename_component(CWHIP_LIB_DIR "${CWHIP_LIB_DIR}" ABSOLUTE BASE_DIR "${CMAKE_BINARY_DIR}")
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CWHIP_BIN_DIR}")
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CWHIP_LIB_DIR}")
+set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CWHIP_LIB_DIR}")
 include(GNUInstallDirs)
-find_package(Cwhip 0.0.1 EXACT CONFIG REQUIRED)
-cwhip_require_sourceview()
+if(DEFINED ENV{CWHIP_SDK} AND NOT "$ENV{CWHIP_SDK}" STREQUAL "")
+    unset(Cwhip_DIR CACHE)
+    find_package(Cwhip 0.0.1 EXACT CONFIG REQUIRED
+        PATHS "$ENV{CWHIP_SDK}" NO_DEFAULT_PATH)
+else()
+    find_package(Cwhip 0.0.1 EXACT CONFIG REQUIRED)
+endif()
+if(NOT Cwhip_APPLICATION_OUTPUT_DIRECTORIES)
+    message(FATAL_ERROR "Install a Cwhip SDK with application output-directory support")
+endif()
+get_filename_component(CDBG_OUTPUT_PREFIX "${CWHIP_BIN_DIR}" DIRECTORY)
+cwhip_require_sourceview(RESOURCE_DIRECTORY
+    "${CDBG_OUTPUT_PREFIX}/share/cwhip/modules/sourceview/0.1.0/language-specs")
 
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
@@ -27,6 +45,7 @@ target_include_directories(cdbg_native PRIVATE "${Cwhip_INCLUDE_DIR}" "${CMAKE_C
 
 cwhip_add_program(cdbg
     SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/src/cdbg.cw"
+    OUTPUT_DIRECTORY "${CWHIP_BIN_DIR}"
     OBJECTS $<TARGET_OBJECTS:cdbg_native>
     DEPENDS cdbg_native cdbg_values_header)
 get_target_property(CDBG_EXECUTABLE cdbg CWHIP_EXECUTABLE)
@@ -36,11 +55,14 @@ install(PROGRAMS "${CDBG_EXECUTABLE}" DESTINATION "${CMAKE_INSTALL_BINDIR}")
 include(CTest)
 if(BUILD_TESTING)
     set(CDBG_TEST_WORK "${CMAKE_CURRENT_BINARY_DIR}/test-work")
+    add_test(NAME cdbg_project_setup
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_project_setup.py")
     add_test(NAME cdbg_gtk_environment
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_gtk_support.py")
     add_executable(cdbg_terminal_test tests/test_cdbg_terminal.c src/terminal.c
                    "${CDBG_GENERATED_VALUES}")
-    set_target_properties(cdbg_terminal_test PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED YES)
+    set_target_properties(cdbg_terminal_test PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED YES
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/test-bin")
     target_compile_options(cdbg_terminal_test PRIVATE -UNDEBUG)
     target_include_directories(cdbg_terminal_test PRIVATE
         "${Cwhip_INCLUDE_DIR}" "${CMAKE_CURRENT_BINARY_DIR}")
