@@ -26,6 +26,28 @@ case "$_BUILD_TYPE" in
 esac
 export _PROJECT_LOC _PROJECT_NAME _BUILD_TYPE CWHIP_BUILD_TYPE
 
+if [[ -z "${CWHIP_SDK:-}" ]]; then
+    config_home="${XDG_CONFIG_HOME:-}"
+    if [[ -z "$config_home" && -n "${HOME:-}" ]]; then
+        config_home="$HOME/.config"
+    fi
+    if [[ -n "$config_home" && "$config_home" != /* ]]; then
+        printf "Cannot discover sdk_prefix: config home '%s' is not absolute.\n" \
+            "$config_home" >&2
+        exit 1
+    fi
+    settings="$config_home/cwhip/settings.toml"
+    if [[ -n "$config_home" && -e "$settings" ]]; then
+        if ! sdk_prefix="$(python3 "$_PROJECT_LOC/scripts/sdk-prefix.py" "$settings")"; then
+            printf 'SDK settings discovery failed; project shell was not started.\n' >&2
+            exit 1
+        fi
+        if [[ -n "$sdk_prefix" ]]; then
+            export CWHIP_SDK="$sdk_prefix"
+        fi
+    fi
+fi
+
 mkdir -p -- "$_PROJECT_LOC/build"
 cd -- "$_PROJECT_LOC/build"
 cmake .. "-DCMAKE_BUILD_TYPE=$CWHIP_BUILD_TYPE"

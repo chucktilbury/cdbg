@@ -38,12 +38,49 @@ directory. Setup creates `build/`, runs `cmake ..` there, and opens a fresh
 interactive Bash using `.project_env` only if configuration succeeds.
 Nested project shells are rejected; exit the current one before running setup
 again.
-`CWHIP_SDK` is an optional installed prefix, not a compiler checkout; without it,
-normal CMake discovery (`CMAKE_PREFIX_PATH` or `Cwhip_DIR`, for example) applies.
+
+### SDK selection protocol
+
+Both direct CMake configuration and setup use this exact precedence:
+
+1. A non-empty `CWHIP_SDK` environment override.
+2. The top-level TOML string `sdk_prefix` in
+   `$XDG_CONFIG_HOME/cwhip/settings.toml` when XDG_CONFIG_HOME is non-empty,
+   otherwise `$HOME/.config/cwhip/settings.toml`.
+3. Normal CMake discovery (`CMAKE_PREFIX_PATH` or `Cwhip_DIR`, for example)
+   when the settings file or top-level key is missing.
+
+This is the shared settings contract used by the Cwhip installer and template:
+
+```toml
+sdk_prefix = "/absolute/path/to/installed/cwhip-sdk"
+```
+
+The value is the whole installed SDK prefix, not its `bin/` or CMake package
+directory. Settings values must be non-empty absolute paths to existing
+directories without NUL or line breaks. Spaces, TOML-escaped quotes and literal
+strings are supported. Settings are parsed as TOML, never sourced as shell code.
+
+A non-empty XDG_CONFIG_HOME must be absolute and selects the only settings
+location: a missing file there does not fall back to HOME. Without either
+config home, normal discovery applies. A non-empty `CWHIP_SDK` bypasses settings
+lookup entirely, including relative XDG_CONFIG_HOME and malformed settings.
+Malformed/unreadable settings or invalid values stop configuration and prevent
+setup from opening a shell. Explicitly chosen prefixes clear cached `Cwhip_DIR`
+and are searched exclusively; incompatible or missing SDK packages cannot
+silently fall back to another installation.
+
+Reading an existing settings file needs Python 3.11+ `tomllib` (setup uses
+`python3`, direct configuration uses CMake's Python3 discovery). Missing files
+and explicit overrides do not invoke the settings parser or impose that Python
+version requirement; cdbg still requires Python separately to embed its values
+inspector. No settings files are created or changed. To return to normal
+discovery, unset `CWHIP_SDK` and remove the top-level `sdk_prefix` selection.
 
 The shell sources a readable `~/.bashrc`, adds root `bin/` and `scripts/` to
 PATH, shows the project/build type in its prompt and starts in `build/`. It
-also adds `CWHIP_SDK/bin` when set, so `.cw` targets can find the selected compiler.
+also adds `CWHIP_SDK/bin` when set, including when setup exports a prefix from
+settings, so `.cw` targets can find the selected compiler.
 With ordinary CMake discovery instead, put `cwhip` on PATH or set `CDBG_COMPILER`
 to its executable path before launching the debugger.
 
@@ -103,6 +140,16 @@ and `GIO_USE_VOLUME_MONITOR=unix` set before either service or the application
 starts. This prevents installed GVFS services from auto-activating on the test
 bus and polluting application diagnostics; stderr assertions remain strict.
 The `cdbg_gtk_environment` test checks this setup without requiring GTK or GVFS.
+SDK discovery and setup regressions can also run without an installed SDK:
+
+```sh
+python3 -B -m unittest discover -s tests -p 'test_*setup.py' -v
+python3 -B -m unittest discover -s tests -p 'test_sdk_discovery.py' -v
+```
+
+The discovery suite uses isolated settings and mock SDK packages with real CMake
+configuration, including precedence, error handling, cache replacement and a
+real Bash PATH handoff. It is also registered as `cdbg_sdk_discovery` in CTest.
 To check GUI/GDB session stability on a host with GVFS installed, run:
 
 ```sh

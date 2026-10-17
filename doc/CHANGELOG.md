@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Discover installed SDKs using `CWHIP_SDK` > shared user settings `sdk_prefix`
+  > normal CMake discovery, with safe TOML parsing and explicit selection errors.
+  Export settings-selected SDKs to the project shell and cover precedence,
+  config locations, cache replacement, failures and PATH behavior.
 - Add the MIT license.
 - Adopt the project-owned Cwhip template conventions without replacing the
   debugger application, tests or imported history: executable `scripts/setup`,
