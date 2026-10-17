@@ -12,7 +12,8 @@ def headless(xvfb: str, work: Path, env: dict[str, str]):
     assert xvfb, "Configured GTK programs require --xvfb"
     env = dict(env)
     env.update({"GTK_A11Y": "none", "GSK_RENDERER": "cairo",
-                "GDK_DISABLE": "gl"})
+                "GDK_DISABLE": "gl", "GIO_USE_VFS": "local",
+                "GIO_USE_VOLUME_MONITOR": "unix"})
     env.pop("DBUS_SESSION_BUS_ADDRESS", None)
     read_fd, write_fd = os.pipe()
     with (work / "xvfb.log").open("w") as log:

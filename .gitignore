@@ -6,5 +6,17 @@
 /doc/out/
 __pycache__/
 *.pyc
+*.o
+*.a
+*.so
+*.so.*
+*.dylib
+*.dll
+*.exe
+/CMakeCache.txt
+/CMakeFiles/
+/Testing/
+/cmake_install.cmake
+/install_manifest.txt
 
 .cdbg.toml

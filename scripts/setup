@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+if [[ -n ${_PROJECT_NAME:-} ]]; then
+    printf 'A project shell is already active (%s). Exit it before starting another.\n' \
+        "$_PROJECT_NAME" >&2
+    exit 1
+fi
+
+_PROJECT_LOC=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)
+_PROJECT_NAME=${_PROJECT_LOC##*/}
+_BUILD_TYPE=${1:-debug}
+if (( $# > 1 )); then
+    printf 'Usage: %s [debug|release|profile]\n' "$0" >&2
+    exit 2
+fi
+case "$_BUILD_TYPE" in
+    debug) CWHIP_BUILD_TYPE=Debug ;;
+    release) CWHIP_BUILD_TYPE=Release ;;
+    profile) CWHIP_BUILD_TYPE=RelWithDebInfo ;;
+    *)
+        printf 'Unknown build type: %s (use debug, release or profile)\n' "$_BUILD_TYPE" >&2
+        exit 2
+        ;;
+esac
+export _PROJECT_LOC _PROJECT_NAME _BUILD_TYPE CWHIP_BUILD_TYPE
+
+mkdir -p -- "$_PROJECT_LOC/build"
+cd -- "$_PROJECT_LOC/build"
+cmake .. "-DCMAKE_BUILD_TYPE=$CWHIP_BUILD_TYPE"
+exec bash --rcfile "$_PROJECT_LOC/.project_env" -i
