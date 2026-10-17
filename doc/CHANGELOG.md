@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Add the MIT license.
 - Adopt the project-owned Cwhip template conventions without replacing the
   debugger application, tests or imported history: executable `scripts/setup`,
   customizable `.project_env`, generated-output ignore rules and build guide.
