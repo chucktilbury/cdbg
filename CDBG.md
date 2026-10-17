@@ -11,15 +11,23 @@ files, and an installed Cwhip 0.0.1 SDK built with GTK and GtkSourceView.
 The debugger build does not use a compiler checkout:
 
 ```sh
-cmake -S . -B build -DCMAKE_PREFIX_PATH=/path/to/cwhip-sdk
-cmake --build build --target cdbg
-./build/bin/cdbg examples/debugger.cw
+export CWHIP_SDK=/path/to/cwhip-sdk
+./scripts/setup debug
+cmake --build . --target cdbg
+cdbg ../examples/debugger.cw
+exit
 ```
 
 Run `cmake --build build --target test-all` for the component's build and test
 suite; `cmake --install build --prefix /path/to/install` installs the
 executable and language resource. See [BUILD.md](doc/BUILD.md) for prerequisites,
 test detection, the optional no-op check and cleaning.
+The project-owned setup shell follows the Cwhip template: `debug` is the default,
+with `release` and `profile` alternatives. It starts in `build/`; the executable
+is written to the repository's `bin/`, with its language resource under `share/`.
+Direct CMake configuration and output-directory overrides are also documented
+in the build guide. The installed SDK needs application output-directory
+support in addition to version `0.0.1`.
 
 `cdbg [SOURCE.cw|EXECUTABLE [-- ARGS...]]` opens the GUI in the foreground;
 arguments after the target are passed individually to the inferior, without a
@@ -315,7 +323,9 @@ cmake --build build --target test-all
 The suite checks MI quoting/parsing (including fragmented transport input),
 real local GDB launch, source compilation with `-g`, source locations,
 breakpoints, stepping, locals, watches, stack-frame selection, errors and
-teardown under a private GTK display/session bus. Missing GDB is reported
+teardown under a private GTK display/session bus with local GIO backends, so
+desktop GVFS services cannot pollute the test diagnostics. Stderr assertions
+remain strict. Missing GDB is reported
 explicitly at configuration time rather than counted as a passing GUI test.
 The value regression compiles real Cwhip `-g` code and compares the exact local
 and watch representations for scalars, escaped/non-ASCII Strings, null, classes,
