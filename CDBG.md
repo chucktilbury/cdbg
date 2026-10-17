@@ -36,11 +36,62 @@ that command-line session (including Restart) but are not saved; applying Setup
 replaces them, and a later File > Load Executable uses the saved arguments.
 A `.cw` command-line target is compiled
 asynchronously using `cwhip -g` to an owned temporary executable. Compilation
-errors appear in a parented modal dialog, the status line, Debugger Console and
-stderr; user source/output files
+failure summaries appear in a parented modal dialog, the status line, Debugger
+Console and stderr; upstream compiler output remains in the Debugger Console.
+User source/output files
 are not overwritten. Other paths are treated as prebuilt executables; compile
 these with debug information. Temporary compiler outputs are removed when the
 session ends or the window closes.
+
+### Diagnostics and exit status
+
+`cdbg` incrementally follows the shared
+[Cwhip diagnostics contract](https://github.com/chucktilbury/cwhip/blob/master/doc/DIAGNOSTICS.md):
+`cdbg: severity[CODE]: explanation`. Diagnostics go to stderr, and `--help`
+goes to stdout. Output is plain text, including when redirected or `NO_COLOR`
+is set. Unknown leading options (including a bare `--`) or extra arguments to
+`--help` exit with status 2. A missing/non-file command-line target exits with
+status 1 before GTK starts, so both errors work without a display. Prefix a
+target beginning with `-` with `./`; after a target, options/arguments still
+belong to the inferior and the optional `--` separator is unchanged.
+
+No arguments opens the GUI. Once the GUI is running, errors remain interactive:
+failed compile/load/debug operations are **not** reported as loaded/running,
+but closing the window retains the existing exit status 0. Rejected source
+opens and nonexistent replacement targets preserve the current session and
+tabs. Accepting a valid replacement target still starts a fresh session as
+described below; this is not a transactional rollback to an earlier GDB session.
+
+| Code | Boundary |
+|------|----------|
+| `CDBG0001` | Command-line usage |
+| `CDBG1000` | Operation rejected in the current debug state |
+| `CDBG1001` | Target/source file loading or reading |
+| `CDBG2001` | Saved-state read, validation, restore or save warning (includes settings path) |
+| `CDBG3001` | Compiler startup, temporary build directory or compilation failure |
+| `CDBG3002` | GDB startup, command rejection or unexpected session exit |
+| `CDBG3003` | Program-output PTY or GDB input transport |
+| `CDBG3004` | GDB protocol or queue/record limit |
+| `CDBG9001` | Owned temporary-output cleanup |
+
+Codes identify stable categories, not individual wordings. GUI error summaries
+use the same header in the status line and Debugger Console; existing file-load
+alerts also show it. Startup/transport failures name the affected target and
+reason, with applicable retry/configuration guidance. Routine progress and
+ignored busy-state actions stay in the status line, without new modal dialogs.
+Raw compiler headers, source locations and GDB details are not parsed or
+rewritten by this layer. The existing bounded console history remains 64 KiB;
+the full current compilation output is also retained in the session's compiler
+output buffer.
+
+This is not a rewrite of every message. Legacy inline watch/locals evaluation
+details, optional value-inspector/start-breakpoint fallback notices, setup/find
+validation, ordinary status messages, SDK/setup-script/CMake diagnostics and
+upstream GTK/runtime failures retain their existing presentation. Compiler and
+GDB output keep their own formats; these codes are not a machine-readable
+output protocol.
+
+### File operations
 
 The **File** menu separates the two kinds of file:
 

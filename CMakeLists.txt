@@ -111,6 +111,13 @@ if(BUILD_TESTING)
             --source "${CMAKE_CURRENT_SOURCE_DIR}/src/cdbg.cw"
             --include "${Cwhip_INCLUDE_DIR}" --work "${CDBG_TEST_WORK}/parser")
 
+    add_test(NAME cdbg_cli
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_cdbg.py"
+            --group cli --compiler "${Cwhip_COMPILER}"
+            --source "${CMAKE_CURRENT_SOURCE_DIR}/src/cdbg.cw"
+            --include "${Cwhip_INCLUDE_DIR}" --work "${CDBG_TEST_WORK}/cli"
+            --executable "${CDBG_EXECUTABLE}")
+
     find_program(CDBG_GDB_EXECUTABLE NAMES gdb)
     find_program(CDBG_XVFB_EXECUTABLE NAMES Xvfb)
     find_program(CDBG_DBUS_DAEMON_EXECUTABLE NAMES dbus-daemon)

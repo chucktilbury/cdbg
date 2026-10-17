@@ -459,6 +459,10 @@ class DebugChecks {
         require(ui.sourceTabs.pageCount() == pages && DebugUiFixture().sourceVisible() &&
             DebugUiFixture().closeButtons() == pages && ui.source.text().contains("counter"),
             format("{}: failed open leaves source tabs visible and unchanged", label))
+        require(ui.loaded && !ui.running && ui.process != null,
+            "failed source open preserves the stopped debug session")
+        require(ui.status.text().startsWith("cdbg: error[CDBG1001]: "),
+            "failed source open shows a coded diagnostic")
         ui.failure = ""
         return true
     }
@@ -493,6 +497,12 @@ class DebugChecks {
             stage = 4
         }
         if (stage == 4 && rejected("invalid UTF-8 source")) {
+            ui.loadTarget(format("{}/missing-target", work))
+            stage = 40
+        }
+        if (stage == 40 && rejected("missing replacement target")) {
+            require(ui.targetPath.equals(System.Process().getEnv("CDBG_TEST_TARGET")),
+                "rejected target leaves the previous target selected")
             require(ui.loaded && !ui.hasRun, "rejections leave the debug session alone")
             require(ui.openSource(notes) && ui.sourceTabs.pageCount() == 3 &&
                 DebugUiFixture().closeButtons() == 3 && ui.source.text().contains("needle"),
@@ -1018,16 +1028,57 @@ class DebugChecks {
             if (contextTick()) { Gtk.Application().post(_self().tick) }
             return
         }
-        if (mode.equals("missing") || mode.equals("compile-error") || mode.equals("invalid-target") ||
+        if (mode.equals("protocol")) {
+            if (ui.loaded && idle()) {
+                ui.consume("999999^done\n")
+                require(!ui.loaded && !ui.running && ui.process == null &&
+                    ui.status.text().startsWith("cdbg: error[CDBG3004]: "),
+                    "protocol failure tears down session and retains failure status")
+                ui.quit()
+                print("true")
+                return
+            }
+            require(Time.Clock().monotonicMilliseconds() < deadline, "protocol startup timeout")
+            Gtk.Application().post(_self().tick)
+            return
+        }
+        if (mode.equals("missing") || mode.equals("compiled-no-gdb") ||
+            mode.equals("compile-error") || mode.equals("invalid-target") ||
+            mode.equals("missing-compiler") || mode.equals("compiler-output") ||
+            mode.equals("terminal-failure") || mode.equals("gdb-exit") ||
             mode.equals("missing-file") || mode.equals("binary-source") || mode.equals("invalid-utf8") ||
             mode.equals("missing-source")) {
             if (!ui.failure.equals("")) {
                 if (!mode.equals("missing-source")) {
                     require(!ui.loaded && !ui.running, "failed startup not success-shaped")
+                    require(ui.process == null && ui.terminal == null && ui.temporary.equals("") &&
+                        ui.mode == 0, "failed startup releases process, terminal and temporary executable")
                 }
-                if (!mode.equals("missing")) {
+                require(ui.status.text().startsWith("cdbg: error[CDBG"),
+                    "failure status retains diagnostic header")
+                require(ui.console.text().contains(ui.status.text()),
+                    "console retains concise failure alongside upstream output")
+                if (mode.equals("compiler-output")) {
+                    require(ui.compilerOutput.contains("cwhip: error[CWHIP1001]: compilation failed") &&
+                        ui.console.text().contains("bad.cw:1:9: error: missing_symbol") &&
+                        ui.console.text().contains("compiler stdout detail"),
+                        "new compiler header and unchanged source diagnostics preserved")
+                    require(ui.failure.contains("exit 9") && ui.failure.contains("bad.cw"),
+                        "compile failure includes target and exit reason")
+                }
+                if (mode.equals("gdb-exit")) {
+                    require(ui.console.text().contains("GDB upstream failure detail") &&
+                        ui.failure.contains("exit 7"), "GDB detail and exit reason preserved")
+                }
+                if (!mode.equals("missing") && !mode.equals("compiled-no-gdb") &&
+                    !mode.equals("missing-compiler") &&
+                    !mode.equals("terminal-failure") && !mode.equals("gdb-exit") && stage == 0) {
                     if (!DebugUiFixture().alert()) { Gtk.Application().post(_self().tick)
                         return }
+                    // Let GtkAlertDialog finish dismissal before destroying its parent.
+                    stage = 1
+                    Gtk.Application().post(_self().tick)
+                    return
                 }
                 ui.endSession()
                 ui.window.close()
@@ -1431,6 +1482,32 @@ def binary_smoke(executable: Path, target: Path, compiler: Path, gdb: str,
                 process.communicate(timeout=10)
 
 
+def cli_checks(executable: Path, work: Path) -> None:
+    env = environment(work)
+    env.pop("DISPLAY", None)
+    env.pop("WAYLAND_DISPLAY", None)
+    env["NO_COLOR"] = "1"
+    missing = work / "missing target.cw"
+    for arguments, exit_code, diagnostic in (
+        (["--help"], 0, None),
+        (["--unknown"], 2, "CDBG0001"),
+        (["--"], 2, "CDBG0001"),
+        (["--help", "extra"], 2, "CDBG0001"),
+        ([str(missing)], 1, "CDBG1001"),
+        ([str(work)], 1, "CDBG1001"),
+    ):
+        result = invoke([str(executable), *arguments], work, env)
+        assert result.returncode == exit_code, result
+        if diagnostic:
+            assert result.stdout == "", result
+            assert result.stderr.startswith(f"cdbg: error[{diagnostic}]: "), result
+            assert len(result.stderr.splitlines()) == 1 and "\x1b" not in result.stderr, result
+            assert arguments[0] in result.stderr, result
+        else:
+            assert result.stdout.startswith("Usage: cdbg ") and not result.stderr, result
+    assert not (work / ".cdbg.toml").exists(), "Headless CLI checks must not create GUI state"
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--compiler", type=Path, required=True)
@@ -1445,7 +1522,7 @@ def main() -> None:
     parser.add_argument("--include", type=Path, required=True)
     parser.add_argument("--runtime-source", type=Path)
     parser.add_argument("--sourceview-languages", type=Path)
-    parser.add_argument("--group", choices=("parser", "session", "noop"), required=True)
+    parser.add_argument("--group", choices=("cli", "parser", "session", "noop"), required=True)
     args = parser.parse_args()
     args.compiler = args.compiler.resolve()
     args.work.mkdir(parents=True, exist_ok=True)
@@ -1465,6 +1542,9 @@ def main() -> None:
         return
     with tempfile.TemporaryDirectory(dir=args.work.resolve(), prefix="cdbg-") as directory:
         work = Path(directory)
+        if args.group == "cli":
+            cli_checks(args.executable.resolve(), work)
+            return
         env = environment(work)
         if args.sourceview_languages:
             env["CDBG_SOURCEVIEW_LANGUAGES"] = str(args.sourceview_languages.resolve())
@@ -1490,6 +1570,7 @@ def main() -> None:
         subprocess.run([sys.executable, str(args.source.parent / "embed_values.py"),
                         str(args.source.parent / "values.py"), str(work / "values.h")], check=True)
         subprocess.run([args.clang, "-c", str(args.source.parent / "terminal.c"),
+                        "-Dposix_openpt=cdbg_fixture_posix_openpt",
                         "-I", str(args.include.resolve()), "-I", str(work), "-o", str(terminal)], check=True)
         compile_program(args.compiler, source, binary, work, env, [fixture, terminal])
         if args.sourceview_languages:
@@ -1567,6 +1648,25 @@ def main() -> None:
         assert optimized_result.returncode == 0 and "OPTIMIZED_CHECK_PASS" in optimized_result.stdout, optimized_result
         bad_source = work / "bad.cw"
         bad_source.write_text("start { missing_symbol() }\n")
+        failed_compiler = work / "failed-compiler"
+        failed_compiler.write_text(
+            f"#!{sys.executable}\nimport sys\n"
+            "print('compiler stdout detail', flush=True)\n"
+            "sys.stderr.write('cwhip: error[CWHIP1001]: compilation failed\\n"
+            "bad.cw:1:9: error: missing_symbol\\n')\n"
+            "sys.exit(9)\n")
+        failed_compiler.chmod(0o755)
+        exited_gdb = work / "exited-gdb"
+        exited_gdb.write_text(
+            f"#!{sys.executable}\nimport sys\n"
+            "for line in sys.stdin:\n"
+            "    if '-file-exec-and-symbols' in line:\n"
+            "        sys.stderr.write('GDB upstream failure detail\\n')\n"
+            "        sys.stderr.flush()\n"
+            "        sys.exit(7)\n"
+            "    token = line.split('-', 1)[0]\n"
+            "    print(token + '^done', flush=True)\n")
+        exited_gdb.chmod(0o755)
         binary_source = work / "binary.cw"
         binary_source.write_bytes(b"\x00not source")
         invalid_utf8 = work / "invalid-utf8.cw"
@@ -1588,7 +1688,13 @@ def main() -> None:
             ("relative-cwhip", Path(cw_source.name), cw_source, "10"),
             ("no-source", stripped_binary, c_source, "7"),
             ("missing", c_binary, c_source, "7"),
+            ("compiled-no-gdb", cw_source, cw_source, "10"),
             ("compile-error", bad_source, bad_source, "1"),
+            ("missing-compiler", bad_source, bad_source, "1"),
+            ("compiler-output", bad_source, bad_source, "1"),
+            ("terminal-failure", c_binary, c_source, "7"),
+            ("gdb-exit", c_binary, c_source, "7"),
+            ("protocol", c_binary, c_source, "7"),
             ("invalid-target", invalid_target, invalid_target, "1"),
             ("missing-file", work / "missing.cw", work / "missing.cw", "1"),
             ("binary-source", binary_source, binary_source, "1"),
@@ -1604,7 +1710,14 @@ def main() -> None:
                                CDBG_TEST_WORK=str(work),
                                CDBG_TEST_SOURCE=str(debug_source), CDBG_TEST_LINE=line,
                                CDBG_COMPILER=str(args.compiler),
-                               CDBG_GDB=args.gdb if mode != "missing" else str(work / "no-gdb"))
+                               CDBG_GDB=(str(work / "no-gdb") if mode in ("missing", "compiled-no-gdb")
+                                         else args.gdb))
+                if mode == "missing-compiler":
+                    gtk_env["CDBG_COMPILER"] = str(work / "no-compiler")
+                if mode == "compiler-output":
+                    gtk_env["CDBG_COMPILER"] = str(failed_compiler)
+                if mode == "gdb-exit":
+                    gtk_env["CDBG_GDB"] = str(exited_gdb)
                 result = invoke([str(binary)], work, gtk_env, timeout=45)
                 expected_output = result.stdout == "true"
                 if mode == "cancel":
@@ -1619,12 +1732,24 @@ def main() -> None:
                     mode, result.returncode, result.stdout, result.stderr)
                 if mode == "ui":
                     lines = [line for line in result.stderr.splitlines() if line]
-                    assert len(lines) == 4 and all(line.startswith("cdbg: ") for line in lines), (
+                    assert len(lines) == 5 and all(
+                        line.startswith("cdbg: error[CDBG1001]: ") for line in lines), (
                         result.stderr)
                 elif mode in ("values", "native", "cwhip", "relative-cwhip", "no-source", "cancel", "scroll", "context"):
                     assert not result.stderr, result.stderr
                 else:
-                    assert "cdbg:" in result.stderr, result.stderr
+                    code = {
+                        "missing": "CDBG3002", "compiled-no-gdb": "CDBG3002",
+                        "compile-error": "CDBG3001",
+                        "missing-compiler": "CDBG3001", "compiler-output": "CDBG3001",
+                        "terminal-failure": "CDBG3003", "gdb-exit": "CDBG3002",
+                        "protocol": "CDBG3004", "invalid-target": "CDBG3002",
+                        "missing-file": "CDBG1001", "binary-source": "CDBG1001",
+                        "invalid-utf8": "CDBG1001", "missing-source": "CDBG1001",
+                    }[mode]
+                    lines = result.stderr.splitlines()
+                    assert len(lines) == 1 and lines[0].startswith(
+                        f"cdbg: error[{code}]: "), (mode, result.stderr)
         binary_smoke(args.executable.resolve(), cw_source, args.compiler, args.gdb,
                      args.xvfb, work, env)
 
@@ -1706,8 +1831,10 @@ def main() -> None:
                                     "breaks", "breaks-restore"):
                             assert not result.stderr, result.stderr
                         else:
-                            assert "cdbg state:" in result.stderr, result.stderr
-                            assert "CRITICAL" not in result.stderr, result.stderr
+                            lines = result.stderr.splitlines()
+                            assert lines and all(line.startswith(
+                                "cdbg: warning[CDBG2001]: ") for line in lines), result.stderr
+                            assert all(str(cwd / ".cdbg.toml") in line for line in lines), result.stderr
                     finally:
                         if manager:
                             manager.terminate()
