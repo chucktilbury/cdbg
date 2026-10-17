@@ -63,5 +63,4 @@ Project changes are recorded in [the changelog](doc/CHANGELOG.md).
 
 ## License
 
-No standalone license has been selected for this repository yet. The public
-source listing does not by itself grant reuse or redistribution rights.
+This project is licensed under the MIT License. See [LICENSE](LICENSE).
