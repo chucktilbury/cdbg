@@ -30,11 +30,13 @@ before opening a fresh Bash shell, sources your existing `~/.bashrc`, and adds
 the project's `bin/` and `scripts/` to PATH. It never downloads dependencies,
 changes Git state or writes your shell configuration. Both setup and direct
 CMake configuration select a non-empty `CWHIP_SDK` first, then the top-level
-TOML `sdk_prefix` in `$XDG_CONFIG_HOME/cwhip/settings.toml` (or
-`$HOME/.config/cwhip/settings.toml` when XDG_CONFIG_HOME is unset/empty), then
-ordinary CMake discovery. Reading settings requires Python 3.11+.
-Setup exports a settings-selected prefix as `CWHIP_SDK`; its `bin/` joins PATH
-so the debugger can compile `.cw` targets with that SDK.
+TOML `sdk_prefix` in `$XDG_CONFIG_HOME/cwhip/sdk.toml` (or
+`$HOME/.config/cwhip/sdk.toml` when XDG_CONFIG_HOME is unset/empty), then
+ordinary CMake discovery. The legacy `settings.toml` is consulted only if
+`sdk.toml` is absent; a present `sdk.toml` is authoritative, including when its
+key is missing. Reading SDK configuration requires Python 3.11+.
+Setup exports a selected prefix as `CWHIP_SDK`; its `bin/` joins PATH so the
+debugger can compile `.cw` targets with that SDK.
 
 Executables default to root `bin/`, native libraries to root `lib/`, and
 intermediate files to `build/`; output directories are created during the build,
