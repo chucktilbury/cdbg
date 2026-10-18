@@ -27,14 +27,21 @@ if(cwhip_sdk_prefix STREQUAL "")
         cmake_path(APPEND cwhip_config_home "cwhip"
             OUTPUT_VARIABLE cwhip_settings_directory)
         cmake_path(NORMAL_PATH cwhip_settings_directory)
-        set(cwhip_settings "${cwhip_settings_directory}/settings.toml")
-        # EXISTS checks readability; listing lets the parser diagnose unreadable files.
+        set(cwhip_sdk_settings "${cwhip_settings_directory}/sdk.toml")
+        set(cwhip_legacy_settings "${cwhip_settings_directory}/settings.toml")
+        # Detect entries without opening them so the parser can report read errors.
         file(GLOB cwhip_settings_entries "${cwhip_settings_directory}/*")
-        if("${cwhip_settings}" IN_LIST cwhip_settings_entries)
+        if("${cwhip_sdk_settings}" IN_LIST cwhip_settings_entries)
+            set(cwhip_selected_settings "${cwhip_sdk_settings}")
+        elseif("${cwhip_legacy_settings}" IN_LIST cwhip_settings_entries)
+            set(cwhip_selected_settings "${cwhip_legacy_settings}")
+        endif()
+        if(DEFINED cwhip_selected_settings)
             find_package(Python3 3.11 REQUIRED COMPONENTS Interpreter)
             execute_process(
                 COMMAND "${Python3_EXECUTABLE}"
-                    "${PROJECT_SOURCE_DIR}/scripts/sdk-prefix.py" "${cwhip_settings}"
+                    "${PROJECT_SOURCE_DIR}/scripts/sdk-prefix.py"
+                    "${cwhip_selected_settings}"
                 RESULT_VARIABLE cwhip_settings_result
                 OUTPUT_VARIABLE cwhip_sdk_prefix
                 ERROR_VARIABLE cwhip_settings_error)

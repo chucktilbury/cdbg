@@ -25,7 +25,8 @@ class SdkDiscoveryTest(unittest.TestCase):
             shutil.copytree(PROJECT / name, self.project / name)
         self.home = self.root / "home"
         self.home.mkdir()
-        self.settings = self.home / ".config/cwhip/settings.toml"
+        self.sdk_settings = self.home / ".config/cwhip/sdk.toml"
+        self.legacy_settings = self.home / ".config/cwhip/settings.toml"
         self.build = self.project / "build"
         self.env = os.environ.copy()
         for name in (
@@ -71,11 +72,18 @@ class SdkDiscoveryTest(unittest.TestCase):
         return prefix
 
     def write_settings(self, content):
-        self.settings.parent.mkdir(parents=True, exist_ok=True)
-        self.settings.write_text(content)
+        self.sdk_settings.parent.mkdir(parents=True, exist_ok=True)
+        self.sdk_settings.write_text(content)
 
     def select(self, prefix):
         self.write_settings(f"sdk_prefix = {json.dumps(str(prefix))}\n")
+
+    def write_legacy_settings(self, content):
+        self.legacy_settings.parent.mkdir(parents=True, exist_ok=True)
+        self.legacy_settings.write_text(content)
+
+    def select_legacy(self, prefix):
+        self.write_legacy_settings(f"sdk_prefix = {json.dumps(str(prefix))}\n")
 
     def configure(self, setup=False, success=True, extra=(), shell_input=None):
         self.shell_record.unlink(missing_ok=True)
@@ -111,7 +119,7 @@ class SdkDiscoveryTest(unittest.TestCase):
 
     def test_missing_settings_preserves_normal_discovery(self):
         self.assert_both_select(self.fallback)
-        self.assertFalse(self.settings.exists())
+        self.assertFalse(self.sdk_settings.exists())
         self.assertFalse((self.project / "bin").exists())
         self.assertFalse((self.project / "lib").exists())
         self.assertEqual(
@@ -119,7 +127,8 @@ class SdkDiscoveryTest(unittest.TestCase):
             f"RESOURCE_DIRECTORY;{self.project}/share/cwhip/modules/sourceview/0.1.0/language-specs",
         )
 
-    def test_missing_top_level_key_preserves_cmake_dir(self):
+    def test_missing_top_level_key_in_sdk_ignores_legacy_and_preserves_cmake_dir(self):
+        self.select_legacy(self.make_sdk("legacy-sdk"))
         self.write_settings('[compiler]\nsdk_prefix = "/not/top-level"\n')
         self.env.pop("CMAKE_PREFIX_PATH")
         self.env["Cwhip_DIR"] = str(self.fallback / "lib/cmake/Cwhip")
@@ -127,16 +136,17 @@ class SdkDiscoveryTest(unittest.TestCase):
 
     def test_xdg_wins_over_home(self):
         self.select(self.make_sdk("home-sdk"))
-        home_settings = self.settings
+        home_settings = self.sdk_settings
         before = home_settings.read_bytes()
         self.env["XDG_CONFIG_HOME"] = str(self.root / 'XDG with "quotes"') + "/"
-        self.settings = Path(self.env["XDG_CONFIG_HOME"]) / "cwhip/settings.toml"
+        self.sdk_settings = Path(self.env["XDG_CONFIG_HOME"]) / "cwhip/sdk.toml"
+        self.legacy_settings = Path(self.env["XDG_CONFIG_HOME"]) / "cwhip/settings.toml"
         sdk = self.make_sdk("xdg-sdk")
         self.select(sdk)
-        xdg_before = self.settings.read_bytes()
+        xdg_before = self.sdk_settings.read_bytes()
         self.assert_both_select(sdk, sdk)
         self.assertEqual(home_settings.read_bytes(), before)
-        self.assertEqual(self.settings.read_bytes(), xdg_before)
+        self.assertEqual(self.sdk_settings.read_bytes(), xdg_before)
 
     def test_empty_xdg_uses_home(self):
         self.env["XDG_CONFIG_HOME"] = ""
@@ -159,7 +169,8 @@ class SdkDiscoveryTest(unittest.TestCase):
     def test_xdg_without_home(self):
         self.env.pop("HOME")
         self.env["XDG_CONFIG_HOME"] = str(self.root / "xdg")
-        self.settings = Path(self.env["XDG_CONFIG_HOME"]) / "cwhip/settings.toml"
+        self.sdk_settings = Path(self.env["XDG_CONFIG_HOME"]) / "cwhip/sdk.toml"
+        self.legacy_settings = Path(self.env["XDG_CONFIG_HOME"]) / "cwhip/settings.toml"
         self.select(self.fallback)
         self.assert_both_select(self.fallback, self.fallback)
 
@@ -177,6 +188,38 @@ class SdkDiscoveryTest(unittest.TestCase):
         sdk = self.make_sdk('literal "SDK"')
         self.write_settings(f"# SDK\nsdk_prefix = '{sdk}' # prefix\n")
         self.assert_both_select(sdk, sdk)
+
+    def test_sdk_file_wins_over_legacy_and_legacy_rewrites_do_not_change_selection(self):
+        legacy_sdk = self.make_sdk("legacy-sdk")
+        sdk = self.make_sdk("new-sdk")
+        self.select_legacy(legacy_sdk)
+        self.select(sdk)
+        self.assert_both_select(sdk, sdk)
+        self.select_legacy(self.make_sdk("rewritten-legacy-sdk"))
+        self.assert_both_select(sdk, sdk)
+
+    def test_legacy_settings_are_used_only_when_sdk_file_is_absent(self):
+        sdk = self.make_sdk("legacy-sdk")
+        self.select_legacy(sdk)
+        self.assert_both_select(sdk, sdk)
+        self.assertFalse(self.sdk_settings.exists())
+
+    def test_malformed_sdk_file_does_not_fall_back_to_legacy(self):
+        self.select_legacy(self.make_sdk("legacy-sdk"))
+        self.write_settings('sdk_prefix = "unterminated\n')
+        for setup in (False, True):
+            output = self.configure(setup=setup, success=False)
+            self.assertIn("sdk.toml", output)
+            self.assertIn("sdk_prefix", output)
+
+    def test_dangling_sdk_symlink_does_not_fall_back_to_legacy(self):
+        self.select_legacy(self.make_sdk("legacy-sdk"))
+        self.sdk_settings.parent.mkdir(parents=True, exist_ok=True)
+        self.sdk_settings.symlink_to(self.root / "missing-sdk-config.toml")
+        for setup in (False, True):
+            output = self.configure(setup=setup, success=False)
+            self.assertIn("sdk.toml", output)
+            self.assertIn("cannot read sdk_prefix", output)
 
     def test_settings_are_never_evaluated_as_shell_code(self):
         sdk = self.make_sdk("SDK $(touch SHELL_CODE_RAN)")
@@ -219,7 +262,7 @@ class SdkDiscoveryTest(unittest.TestCase):
                     self.write_settings(content)
                     output = self.configure(setup=setup, success=False)
                     self.assertIn("sdk_prefix", output)
-                    self.assertIn("settings.toml", output)
+                    self.assertIn("sdk.toml", output)
 
     def test_invalid_selected_packages_never_use_cached_sdk(self):
         self.configure()
@@ -235,22 +278,22 @@ class SdkDiscoveryTest(unittest.TestCase):
 
     def test_unreadable_settings(self):
         self.select(self.fallback)
-        self.settings.chmod(0)
-        self.addCleanup(self.settings.chmod, 0o600)
-        if os.access(self.settings, os.R_OK):
+        self.sdk_settings.chmod(0)
+        self.addCleanup(self.sdk_settings.chmod, 0o600)
+        if os.access(self.sdk_settings, os.R_OK):
             self.skipTest("Current user can read mode-000 files")
         for setup in (False, True):
             self.assertIn("sdk_prefix", self.configure(setup=setup, success=False))
 
     def test_settings_directory_is_error(self):
-        self.settings.mkdir(parents=True)
+        self.sdk_settings.mkdir(parents=True)
         for setup in (False, True):
-            self.assertIn("settings.toml", self.configure(setup=setup, success=False))
+            self.assertIn("sdk.toml", self.configure(setup=setup, success=False))
 
     def test_setup_real_shell_path_and_release_mode(self):
         sdk = self.make_sdk('shell SDK "quotes"')
         self.select(sdk)
-        before = self.settings.read_bytes()
+        before = self.sdk_settings.read_bytes()
         self.env["PATH"] = os.environ["PATH"]
         self.configure(
             setup=True, extra=("release",),
@@ -261,7 +304,7 @@ class SdkDiscoveryTest(unittest.TestCase):
         ])
         self.assert_selected(sdk)
         self.assertIn("CMAKE_BUILD_TYPE:STRING=Release", (self.build / "CMakeCache.txt").read_text())
-        self.assertEqual(self.settings.read_bytes(), before)
+        self.assertEqual(self.sdk_settings.read_bytes(), before)
 
     def test_setup_only_needs_python_for_existing_settings(self):
         python = self.tools / "python3"
