@@ -45,37 +45,45 @@ Both direct CMake configuration and setup use this exact precedence:
 
 1. A non-empty `CWHIP_SDK` environment override.
 2. The top-level TOML string `sdk_prefix` in
-   `$XDG_CONFIG_HOME/cwhip/settings.toml` when XDG_CONFIG_HOME is non-empty,
-   otherwise `$HOME/.config/cwhip/settings.toml`.
+   `$XDG_CONFIG_HOME/cwhip/sdk.toml` when XDG_CONFIG_HOME is non-empty,
+   otherwise `$HOME/.config/cwhip/sdk.toml`.
 3. Normal CMake discovery (`CMAKE_PREFIX_PATH` or `Cwhip_DIR`, for example)
-   when the settings file or top-level key is missing.
+   when the selected file or its top-level key is missing.
 
-This is the shared settings contract used by the Cwhip installer and template:
+The SDK selection file is separate from application preferences:
 
 ```toml
 sdk_prefix = "/absolute/path/to/installed/cwhip-sdk"
 ```
 
+For compatibility, `$XDG_CONFIG_HOME/cwhip/settings.toml` (or
+`$HOME/.config/cwhip/settings.toml`) is consulted only when `sdk.toml` is
+absent. A present `sdk.toml` is authoritative: malformed/unreadable content or
+an invalid value is an error, and a missing `sdk_prefix` key proceeds to normal
+CMake discovery without consulting the legacy file.
+
 The value is the whole installed SDK prefix, not its `bin/` or CMake package
 directory. Settings values must be non-empty absolute paths to existing
 directories without NUL or line breaks. Spaces, TOML-escaped quotes and literal
-strings are supported. Settings are parsed as TOML, never sourced as shell code.
+strings are supported. The SDK file is parsed as TOML, never sourced as shell
+code.
 
-A non-empty XDG_CONFIG_HOME must be absolute and selects the only settings
-location: a missing file there does not fall back to HOME. Without either
-config home, normal discovery applies. A non-empty `CWHIP_SDK` bypasses settings
-lookup entirely, including relative XDG_CONFIG_HOME and malformed settings.
-Malformed/unreadable settings or invalid values stop configuration and prevent
-setup from opening a shell. Explicitly chosen prefixes clear cached `Cwhip_DIR`
-and are searched exclusively; incompatible or missing SDK packages cannot
-silently fall back to another installation.
+A non-empty XDG_CONFIG_HOME must be absolute and selects the only config home:
+missing files there do not fall back to HOME. Without either config home,
+normal discovery applies. A non-empty `CWHIP_SDK` bypasses config lookup
+entirely, including relative XDG_CONFIG_HOME and malformed files.
+Malformed/unreadable selected files or invalid values stop configuration and
+prevent setup from opening a shell. Explicitly chosen prefixes clear cached
+`Cwhip_DIR` and are searched exclusively; incompatible or missing SDK packages
+cannot silently fall back to another installation.
 
-Reading an existing settings file needs Python 3.11+ `tomllib` (setup uses
+Reading an existing SDK config file needs Python 3.11+ `tomllib` (setup uses
 `python3`, direct configuration uses CMake's Python3 discovery). Missing files
 and explicit overrides do not invoke the settings parser or impose that Python
 version requirement; cdbg still requires Python separately to embed its values
-inspector. No settings files are created or changed. To return to normal
-discovery, unset `CWHIP_SDK` and remove the top-level `sdk_prefix` selection.
+inspector. Lookup never creates, changes or migrates either config file. To
+return to normal discovery, unset `CWHIP_SDK` and remove the top-level
+`sdk_prefix` selection from `sdk.toml`.
 
 The shell sources a readable `~/.bashrc`, adds root `bin/` and `scripts/` to
 PATH, shows the project/build type in its prompt and starts in `build/`. It

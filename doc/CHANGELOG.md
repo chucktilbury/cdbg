@@ -13,10 +13,11 @@
   Assert exact owned stderr categories without allowing GTK/GVFS noise.
   Let test alerts finish dismissal before closing their parent, and release
   the PTY if GDB startup fails after successful compilation.
-- Discover installed SDKs using `CWHIP_SDK` > shared user settings `sdk_prefix`
-  > normal CMake discovery, with safe TOML parsing and explicit selection errors.
-  Export settings-selected SDKs to the project shell and cover precedence,
-  config locations, cache replacement, failures and PATH behavior.
+- Discover installed SDKs using `CWHIP_SDK` > dedicated `cwhip/sdk.toml`
+  > normal CMake discovery, with legacy `settings.toml` compatibility only
+  when the dedicated file is absent. Export selected SDKs to the project shell
+  and cover precedence, config locations, cache replacement, failures and PATH
+  behavior.
 - Add the MIT license.
 - Adopt the project-owned Cwhip template conventions without replacing the
   debugger application, tests or imported history: executable `scripts/setup`,
