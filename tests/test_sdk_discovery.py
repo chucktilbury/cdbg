@@ -60,6 +60,7 @@ class SdkDiscoveryTest(unittest.TestCase):
             '    file(WRITE "${CMAKE_BINARY_DIR}/sourceview-args.txt" "${ARGV}")\n'
             'endfunction()\n'
             'function(cwhip_add_program name)\n'
+            '    file(WRITE "${CMAKE_BINARY_DIR}/program-args.txt" "${ARGV}")\n'
             '    add_custom_target("${name}")\n'
             '    set_target_properties("${name}" PROPERTIES\n'
             '        CWHIP_EXECUTABLE "${CMAKE_BINARY_DIR}/cdbg")\n'
@@ -367,6 +368,14 @@ class SdkDiscoveryTest(unittest.TestCase):
         cache = (self.build / "CMakeCache.txt").read_text()
         self.assertIn(f"CMAKE_INSTALL_PREFIX:PATH={install_prefix}", cache)
         self.assertIn("CMAKE_BUILD_TYPE:STRING=RelWithDebInfo", cache)
+        self.assertIn(
+            f"OUTPUT_DIRECTORY;{self.project}/bin",
+            (self.build / "program-args.txt").read_text(),
+        )
+        self.assertEqual(
+            (self.build / "sourceview-args.txt").read_text(),
+            f"RESOURCE_DIRECTORY;{self.project}/share/cwhip/modules/sourceview/0.1.0/language-specs",
+        )
 
         self.write_application_defaults(self.root / "changed-install", "Release")
         self.configure()

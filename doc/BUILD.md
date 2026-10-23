@@ -98,7 +98,9 @@ for fresh/default CMake cache values. Explicit CMake options such as
 cache values, take precedence. An explicit `scripts/setup` mode passes the
 corresponding `-DCMAKE_BUILD_TYPE`; omitting the mode lets the SDK defaults or
 existing build cache decide. No shared build directory or other CMake flags are
-inherited.
+inherited. `install_prefix` affects `cmake --install`; build-tree executables
+and staged language resources remain controlled by `CWHIP_BIN_DIR` and
+`CWHIP_LIB_DIR`.
 
 Reading an existing SDK config file needs Python 3.11+ `tomllib` (setup uses
 `python3`, direct configuration uses CMake's Python3 discovery). Missing files
