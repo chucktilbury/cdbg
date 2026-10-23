@@ -1,5 +1,4 @@
 cmake_minimum_required(VERSION 3.24)
-project(CwhipDebugger VERSION 0.0.1 LANGUAGES C)
 
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_BINARY_DIR)
     message(FATAL_ERROR "Use an out-of-source build: cmake -S . -B build")
@@ -32,7 +31,7 @@ if(cwhip_sdk_prefix STREQUAL "")
             find_package(Python3 3.11 REQUIRED COMPONENTS Interpreter)
             execute_process(
                 COMMAND "${Python3_EXECUTABLE}"
-                    "${PROJECT_SOURCE_DIR}/scripts/sdk-prefix.py"
+                    "${CMAKE_CURRENT_SOURCE_DIR}/scripts/sdk-prefix.py"
                     "${cwhip_selected_settings}"
                 RESULT_VARIABLE cwhip_settings_result
                 OUTPUT_VARIABLE cwhip_sdk_prefix
@@ -54,6 +53,9 @@ else()
     find_package(Cwhip 0.0.1 EXACT CONFIG REQUIRED)
     cwhip_apply_application_defaults()
 endif()
+
+project(CwhipDebugger VERSION 0.0.1 LANGUAGES C)
+
 include(GNUInstallDirs)
 
 set(CWHIP_BIN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/bin" CACHE PATH "Application executable directory")

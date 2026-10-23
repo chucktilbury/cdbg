@@ -31,7 +31,7 @@ class SdkDiscoveryTest(unittest.TestCase):
         self.env = os.environ.copy()
         for name in (
             "CWHIP_SDK", "CMAKE_PREFIX_PATH", "Cwhip_DIR", "Cwhip_ROOT",
-            "_PROJECT_NAME", "XDG_CONFIG_HOME",
+            "_PROJECT_NAME", "XDG_CONFIG_HOME", "CMAKE_INSTALL_PREFIX",
         ):
             self.env.pop(name, None)
         self.env["HOME"] = str(self.home)
@@ -93,11 +93,16 @@ class SdkDiscoveryTest(unittest.TestCase):
             '            endif()\n'
             '        endforeach()\n'
             '    endif()\n'
-            '    if(DEFINED app_install_prefix AND CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)\n'
-            '        set(CMAKE_INSTALL_PREFIX "${app_install_prefix}" CACHE PATH "Install prefix" FORCE)\n'
+            '    if(DEFINED app_install_prefix AND NOT DEFINED CACHE{CMAKE_INSTALL_PREFIX})\n'
+            '        if(NOT "$ENV{CMAKE_INSTALL_PREFIX}" STREQUAL "")\n'
+            '            set(app_install_prefix "$ENV{CMAKE_INSTALL_PREFIX}")\n'
+            '        endif()\n'
+            '        set(CMAKE_INSTALL_PREFIX "${app_install_prefix}" CACHE PATH "Install prefix")\n'
+            '        set(CMAKE_INSTALL_PREFIX "${app_install_prefix}" PARENT_SCOPE)\n'
             '    endif()\n'
-            '    if(DEFINED app_build_type AND CMAKE_BUILD_TYPE STREQUAL "")\n'
-            '        set(CMAKE_BUILD_TYPE "${app_build_type}" CACHE STRING "Build type" FORCE)\n'
+            '    if(DEFINED app_build_type AND NOT DEFINED CACHE{CMAKE_BUILD_TYPE})\n'
+            '        set(CMAKE_BUILD_TYPE "${app_build_type}" CACHE STRING "Build type")\n'
+            '        set(CMAKE_BUILD_TYPE "${app_build_type}" PARENT_SCOPE)\n'
             '    endif()\n'
             'endfunction()\n'
         )
@@ -393,6 +398,36 @@ class SdkDiscoveryTest(unittest.TestCase):
         cache = (self.build / "CMakeCache.txt").read_text()
         self.assertIn(f"CMAKE_INSTALL_PREFIX:PATH={install_prefix}", cache)
         self.assertIn("CMAKE_BUILD_TYPE:STRING=Debug", cache)
+
+    def test_environment_install_prefix_overrides_application_default(self):
+        self.write_application_defaults(self.root / "sdk-install", "Release")
+        prefix = self.root / "environment-install"
+        self.env["CMAKE_INSTALL_PREFIX"] = str(prefix)
+        self.configure()
+        cache = (self.build / "CMakeCache.txt").read_text()
+        self.assertIn(f"CMAKE_INSTALL_PREFIX:PATH={prefix}", cache)
+        self.assertIn("CMAKE_BUILD_TYPE:STRING=Release", cache)
+
+    def test_explicit_empty_build_type_is_preserved(self):
+        self.write_application_defaults(self.root / "sdk-install", "Release")
+        self.configure(extra=("-DCMAKE_BUILD_TYPE=",))
+        self.assertIn("CMAKE_BUILD_TYPE:STRING=\n", (self.build / "CMakeCache.txt").read_text())
+
+        self.write_application_defaults(self.root / "changed-install", "Debug")
+        self.configure()
+        self.assertIn("CMAKE_BUILD_TYPE:STRING=\n", (self.build / "CMakeCache.txt").read_text())
+
+    def test_explicit_default_install_prefix_is_preserved_in_cache(self):
+        self.write_application_defaults(self.root / "sdk-install", "Release")
+        self.configure(extra=("-DCMAKE_INSTALL_PREFIX=/usr/local",))
+        self.assertIn("CMAKE_INSTALL_PREFIX:PATH=/usr/local\n",
+                      (self.build / "CMakeCache.txt").read_text())
+
+        self.write_application_defaults(self.root / "changed-install", "Debug")
+        self.configure()
+        cache = (self.build / "CMakeCache.txt").read_text()
+        self.assertIn("CMAKE_INSTALL_PREFIX:PATH=/usr/local\n", cache)
+        self.assertIn("CMAKE_BUILD_TYPE:STRING=Release", cache)
 
     def test_setup_without_mode_inherits_application_build_type(self):
         self.write_application_defaults(self.root / "application-install", "RelWithDebInfo")
