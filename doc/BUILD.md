@@ -97,7 +97,8 @@ for fresh/default CMake cache values. Explicit CMake options such as
 `-DCMAKE_INSTALL_PREFIX=...` and `-DCMAKE_BUILD_TYPE=...`, as well as existing
 cache values (including an empty `CMAKE_BUILD_TYPE` or `/usr/local` install
 prefix), take precedence; the `CMAKE_INSTALL_PREFIX` environment override is
-also preserved. An explicit `scripts/setup` mode passes the
+also preserved, as is the `CMAKE_BUILD_TYPE` environment override. An explicit
+`scripts/setup` mode passes the
 corresponding `-DCMAKE_BUILD_TYPE`; omitting the mode lets the SDK defaults or
 existing build cache decide. No shared build directory or other CMake flags are
 inherited. `install_prefix` affects `cmake --install`; build-tree executables

@@ -31,7 +31,7 @@ class SdkDiscoveryTest(unittest.TestCase):
         self.env = os.environ.copy()
         for name in (
             "CWHIP_SDK", "CMAKE_PREFIX_PATH", "Cwhip_DIR", "Cwhip_ROOT",
-            "_PROJECT_NAME", "XDG_CONFIG_HOME", "CMAKE_INSTALL_PREFIX",
+            "_PROJECT_NAME", "XDG_CONFIG_HOME", "CMAKE_INSTALL_PREFIX", "CMAKE_BUILD_TYPE",
         ):
             self.env.pop(name, None)
         self.env["HOME"] = str(self.home)
@@ -101,6 +101,9 @@ class SdkDiscoveryTest(unittest.TestCase):
             '        set(CMAKE_INSTALL_PREFIX "${app_install_prefix}" PARENT_SCOPE)\n'
             '    endif()\n'
             '    if(DEFINED app_build_type AND NOT DEFINED CACHE{CMAKE_BUILD_TYPE})\n'
+            '        if(DEFINED ENV{CMAKE_BUILD_TYPE})\n'
+            '            set(app_build_type "$ENV{CMAKE_BUILD_TYPE}")\n'
+            '        endif()\n'
             '        set(CMAKE_BUILD_TYPE "${app_build_type}" CACHE STRING "Build type")\n'
             '        set(CMAKE_BUILD_TYPE "${app_build_type}" PARENT_SCOPE)\n'
             '    endif()\n'
@@ -407,6 +410,12 @@ class SdkDiscoveryTest(unittest.TestCase):
         cache = (self.build / "CMakeCache.txt").read_text()
         self.assertIn(f"CMAKE_INSTALL_PREFIX:PATH={prefix}", cache)
         self.assertIn("CMAKE_BUILD_TYPE:STRING=Release", cache)
+
+    def test_environment_build_type_overrides_application_default(self):
+        self.write_application_defaults(self.root / "sdk-install", "Release")
+        self.env["CMAKE_BUILD_TYPE"] = "Debug"
+        self.configure()
+        self.assertIn("CMAKE_BUILD_TYPE:STRING=Debug", (self.build / "CMakeCache.txt").read_text())
 
     def test_explicit_empty_build_type_is_preserved(self):
         self.write_application_defaults(self.root / "sdk-install", "Release")
