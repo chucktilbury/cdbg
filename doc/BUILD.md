@@ -7,7 +7,7 @@ and does not read from or build a compiler workspace checkout.
 
 - CMake 3.24 or newer, a C compiler, Python 3.11 or newer and `pkg-config`
 - An installed Cwhip SDK version `0.0.1` with GTK, GtkSourceView and application
-  output-directory support enabled
+  output-directory and application-defaults support enabled
 - GTK 4.10 or newer and GtkSourceView 5 development files
 - For the GUI/GDB integration tests: GDB, Xvfb and `dbus-daemon`
 
@@ -17,6 +17,15 @@ checkout path is needed. The GUI libraries above are native build dependencies.
 Runtime object inspection also needs the SDK runtime's type debug information;
 the SDK retains it for GNU/Clang builds, including Release. Stripping it from
 the runtime archive disables those inspection capabilities.
+
+The selected installed SDK must provide `cwhip_apply_application_defaults`
+through its CMake package. An older `0.0.1` SDK can satisfy the version check
+but still lack this capability. If configuration reports missing
+application-defaults support, rebuild and reinstall an updated Cwhip SDK to
+the prefix named in the error, or select an updated installation with
+`CWHIP_SDK`, then rerun setup/configuration. Updating the compiler source alone
+does not update an existing installed SDK. cdbg does not skip shared defaults
+when this capability is missing.
 
 ## Configure and build
 
