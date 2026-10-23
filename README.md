@@ -19,7 +19,7 @@ it does not depend on or embed a template checkout.
 
 ```sh
 export CWHIP_SDK=/path/to/installed/cwhip-sdk
-./scripts/setup                 # debug; also accepts release or profile
+./scripts/setup                 # SDK defaults; accepts debug/release/profile
 cmake --build . --target cdbg   # the new shell starts in build/
 cdbg ../examples/debugger.cw
 exit                           # return to the original shell
@@ -37,6 +37,14 @@ ordinary CMake discovery. The legacy `settings.toml` is consulted only if
 key is missing. Reading SDK configuration requires Python 3.11+.
 Setup exports a selected prefix as `CWHIP_SDK`; its `bin/` joins PATH so the
 debugger can compile `.cw` targets with that SDK.
+
+The installed SDK also supplies common CMake application defaults from
+`[applications].install_prefix` and `[applications].build_type` in `sdk.toml`.
+Setup inherits the SDK/cache build type when no mode is specified; `debug`,
+`release` and `profile` explicitly select CMake `Debug`, `Release` and
+`RelWithDebInfo`. Explicit CMake settings and existing cache values win over
+SDK defaults. These defaults do not include a shared build directory or
+arbitrary CMake flags, and cdbg does not write the SDK settings file.
 
 Executables default to root `bin/`, native libraries to root `lib/`, and
 intermediate files to `build/`; output directories are created during the build,

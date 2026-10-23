@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Apply the installed Cwhip SDK's shared `[applications]` install-prefix and
+  build-type defaults before cdbg's own CMake cache defaults. Preserve explicit
+  CMake options and existing cache values; let setup inherit defaults when no
+  mode is specified, while explicit setup modes still select their build type.
+  Cover inheritance, overrides, cache retention and setup behavior.
 - Adopt shared plain-text diagnostics at CLI and representative GUI
   load/compiler/GDB/transport boundaries using stable `CDBG` category codes.
   Keep upstream output, existing interactive exit behavior and session/tab

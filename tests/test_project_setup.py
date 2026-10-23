@@ -33,15 +33,21 @@ class ProjectSetupTest(unittest.TestCase):
                     "with open(os.environ['SETUP_LOG'], 'a') as log:\n"
                     "    log.write(json.dumps({'tool': Path(sys.argv[0]).name,\n"
                     "        'args': sys.argv[1:], 'cwd': os.getcwd(),\n"
-                    "        'env': {key: os.environ[key] for key in\n"
+                    "        'env': {key: os.environ.get(key, '') for key in\n"
                     "            ('_PROJECT_LOC', '_PROJECT_NAME', '_BUILD_TYPE',\n"
                     "             'CWHIP_BUILD_TYPE', 'CWHIP_SDK')}}) + '\\n')\n"
                     "if Path(sys.argv[0]).name == 'cmake':\n"
+                    "    build_type = next((arg.split('=', 1)[1] for arg in sys.argv[1:]\n"
+                    "        if arg.startswith('-DCMAKE_BUILD_TYPE=')),\n"
+                    "        os.environ.get('MOCK_DEFAULT_BUILD_TYPE', ''))\n"
+                    "    Path('CMakeCache.txt').write_text(\n"
+                    "        f'CMAKE_BUILD_TYPE:STRING={build_type}\\n')\n"
                     "    sys.exit(int(os.environ.get('CONFIGURE_STATUS', '0')))\n"
                 )
                 tool.chmod(0o755)
             env = dict(os.environ, PATH=f"{tools}:{os.environ['PATH']}",
-                       SETUP_LOG=str(log), CWHIP_SDK=str(root / "sdk prefix"))
+                       SETUP_LOG=str(log), CWHIP_SDK=str(root / "sdk prefix"),
+                       MOCK_DEFAULT_BUILD_TYPE="RelWithDebInfo")
             env.pop("_PROJECT_NAME", None)
             for mode, cmake_type in ((None, "Debug"), ("debug", "Debug"),
                                      ("release", "Release"), ("profile", "RelWithDebInfo")):
@@ -52,13 +58,17 @@ class ProjectSetupTest(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stderr)
                 configure, shell = [json.loads(line) for line in log.read_text().splitlines()]
                 self.assertEqual(configure["tool"], "cmake")
-                self.assertEqual(configure["args"], ["..", f"-DCMAKE_BUILD_TYPE={cmake_type}"])
+                expected_args = [".."]
+                if mode is not None:
+                    expected_args.append(f"-DCMAKE_BUILD_TYPE={cmake_type}")
+                self.assertEqual(configure["args"], expected_args)
                 self.assertEqual(configure["cwd"], str(root / "build"))
                 self.assertEqual(shell["args"], ["--rcfile", str(root / ".project_env"), "-i"])
                 self.assertEqual(shell["env"]["_PROJECT_LOC"], str(root))
                 self.assertEqual(shell["env"]["_PROJECT_NAME"], root.name)
-                self.assertEqual(shell["env"]["_BUILD_TYPE"], mode or "debug")
-                self.assertEqual(shell["env"]["CWHIP_BUILD_TYPE"], cmake_type)
+                self.assertEqual(shell["env"]["_BUILD_TYPE"], mode or "profile")
+                self.assertEqual(shell["env"]["CWHIP_BUILD_TYPE"],
+                                 cmake_type if mode else "RelWithDebInfo")
                 self.assertEqual(shell["env"]["CWHIP_SDK"], str(root / "sdk prefix"))
                 self.assertFalse((root / "bin").exists())
                 self.assertFalse((root / "lib").exists())
