@@ -1,18 +1,9 @@
 cmake_minimum_required(VERSION 3.24)
-project(CwhipDebugger VERSION 0.0.1 LANGUAGES C)
 
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_BINARY_DIR)
     message(FATAL_ERROR "Use an out-of-source build: cmake -S . -B build")
 endif()
 
-set(CWHIP_BIN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/bin" CACHE PATH "Application executable directory")
-set(CWHIP_LIB_DIR "${CMAKE_CURRENT_SOURCE_DIR}/lib" CACHE PATH "Native library directory")
-get_filename_component(CWHIP_BIN_DIR "${CWHIP_BIN_DIR}" ABSOLUTE BASE_DIR "${CMAKE_BINARY_DIR}")
-get_filename_component(CWHIP_LIB_DIR "${CWHIP_LIB_DIR}" ABSOLUTE BASE_DIR "${CMAKE_BINARY_DIR}")
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CWHIP_BIN_DIR}")
-set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CWHIP_LIB_DIR}")
-set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CWHIP_LIB_DIR}")
-include(GNUInstallDirs)
 set(cwhip_sdk_prefix "$ENV{CWHIP_SDK}")
 if(cwhip_sdk_prefix STREQUAL "")
     set(cwhip_config_home "$ENV{XDG_CONFIG_HOME}")
@@ -40,7 +31,7 @@ if(cwhip_sdk_prefix STREQUAL "")
             find_package(Python3 3.11 REQUIRED COMPONENTS Interpreter)
             execute_process(
                 COMMAND "${Python3_EXECUTABLE}"
-                    "${PROJECT_SOURCE_DIR}/scripts/sdk-prefix.py"
+                    "${CMAKE_CURRENT_SOURCE_DIR}/scripts/sdk-prefix.py"
                     "${cwhip_selected_settings}"
                 RESULT_VARIABLE cwhip_settings_result
                 OUTPUT_VARIABLE cwhip_sdk_prefix
@@ -57,9 +48,23 @@ if(NOT cwhip_sdk_prefix STREQUAL "")
     unset(Cwhip_DIR)
     find_package(Cwhip 0.0.1 EXACT CONFIG REQUIRED
         PATHS "${cwhip_sdk_prefix}" NO_DEFAULT_PATH)
+    cwhip_apply_application_defaults()
 else()
     find_package(Cwhip 0.0.1 EXACT CONFIG REQUIRED)
+    cwhip_apply_application_defaults()
 endif()
+
+project(CwhipDebugger VERSION 0.0.1 LANGUAGES C)
+
+include(GNUInstallDirs)
+
+set(CWHIP_BIN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/bin" CACHE PATH "Application executable directory")
+set(CWHIP_LIB_DIR "${CMAKE_CURRENT_SOURCE_DIR}/lib" CACHE PATH "Native library directory")
+get_filename_component(CWHIP_BIN_DIR "${CWHIP_BIN_DIR}" ABSOLUTE BASE_DIR "${CMAKE_BINARY_DIR}")
+get_filename_component(CWHIP_LIB_DIR "${CWHIP_LIB_DIR}" ABSOLUTE BASE_DIR "${CMAKE_BINARY_DIR}")
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CWHIP_BIN_DIR}")
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CWHIP_LIB_DIR}")
+set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CWHIP_LIB_DIR}")
 if(NOT Cwhip_APPLICATION_OUTPUT_DIRECTORIES)
     message(FATAL_ERROR "Install a Cwhip SDK with application output-directory support")
 endif()

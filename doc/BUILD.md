@@ -32,10 +32,11 @@ cdbg ../examples/debugger.cw
 exit
 ```
 
-`scripts/setup [debug|release|profile]` defaults to `debug`. The choices map to
-CMake `Debug`, `Release` and `RelWithDebInfo`, respectively, in the same `build/`
-directory. Setup creates `build/`, runs `cmake ..` there, and opens a fresh
-interactive Bash using `.project_env` only if configuration succeeds.
+`scripts/setup [debug|release|profile]` inherits the installed SDK's application
+build type when no mode is given. The explicit choices map to CMake `Debug`,
+`Release` and `RelWithDebInfo`, respectively, in the same `build/` directory.
+Setup creates `build/`, runs CMake there, and opens a fresh interactive Bash
+using `.project_env` only if configuration succeeds.
 Nested project shells are rejected; exit the current one before running setup
 again.
 
@@ -77,6 +78,33 @@ prevent setup from opening a shell. Explicitly chosen prefixes clear cached
 `Cwhip_DIR` and are searched exclusively; incompatible or missing SDK packages
 cannot silently fall back to another installation.
 
+### Application defaults
+
+The SDK also records its common application defaults in the same `sdk.toml`:
+
+```toml
+[applications]
+install_prefix = "/path/to/application-install"
+build_type = "Release"
+```
+
+The installed Cwhip package applies these values as CMake defaults for this
+application. They are separate from SDK selection: `sdk_prefix` selects the SDK,
+while `[applications]` supplies only the shared install prefix and build type.
+The SDK registers values derived from its actual install prefix and build
+configuration; cdbg does not modify the settings file. Defaults are used only
+for fresh/default CMake cache values. Explicit CMake options such as
+`-DCMAKE_INSTALL_PREFIX=...` and `-DCMAKE_BUILD_TYPE=...`, as well as existing
+cache values (including an empty `CMAKE_BUILD_TYPE` or `/usr/local` install
+prefix), take precedence; the `CMAKE_INSTALL_PREFIX` environment override is
+also preserved, as is the `CMAKE_BUILD_TYPE` environment override. An explicit
+`scripts/setup` mode passes the
+corresponding `-DCMAKE_BUILD_TYPE`; omitting the mode lets the SDK defaults or
+existing build cache decide. No shared build directory or other CMake flags are
+inherited. `install_prefix` affects `cmake --install`; build-tree executables
+and staged language resources remain controlled by `CWHIP_BIN_DIR` and
+`CWHIP_LIB_DIR`.
+
 Reading an existing SDK config file needs Python 3.11+ `tomllib` (setup uses
 `python3`, direct configuration uses CMake's Python3 discovery). Missing files
 and explicit overrides do not invoke the settings parser or impose that Python
@@ -92,7 +120,8 @@ settings, so `.cw` targets can find the selected compiler.
 With ordinary CMake discovery instead, put `cwhip` on PATH or set `CDBG_COMPILER`
 to its executable path before launching the debugger.
 
-The shell exports `_PROJECT_NAME`, `_PROJECT_LOC`, `_BUILD_TYPE` and `CWHIP_BUILD_TYPE`.
+The shell exports `_PROJECT_NAME`, `_PROJECT_LOC`, `_BUILD_TYPE` and the
+effective `CWHIP_BUILD_TYPE` read from the configured CMake cache.
 Its project-root Git helpers are `status`, `add` (defaults to `add .`), `commit` and `push`; `all`
 explicitly runs `add -A`, `commit` and `push` in sequence, and `dbg` invokes
 `cdbg`. Arguments are passed through. Customize these project-owned files as

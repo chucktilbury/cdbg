@@ -31,7 +31,7 @@ class SdkDiscoveryTest(unittest.TestCase):
         self.env = os.environ.copy()
         for name in (
             "CWHIP_SDK", "CMAKE_PREFIX_PATH", "Cwhip_DIR", "Cwhip_ROOT",
-            "_PROJECT_NAME", "XDG_CONFIG_HOME",
+            "_PROJECT_NAME", "XDG_CONFIG_HOME", "CMAKE_INSTALL_PREFIX", "CMAKE_BUILD_TYPE",
         ):
             self.env.pop(name, None)
         self.env["HOME"] = str(self.home)
@@ -53,15 +53,60 @@ class SdkDiscoveryTest(unittest.TestCase):
         (package / "CwhipConfig.cmake").write_text(
             'get_filename_component(prefix "${CMAKE_CURRENT_LIST_DIR}/../../.." ABSOLUTE)\n'
             'file(WRITE "${CMAKE_BINARY_DIR}/selected-sdk.txt" "${prefix}")\n'
+            'include("${CMAKE_CURRENT_LIST_DIR}/CwhipApplicationDefaults.cmake")\n'
             'set(Cwhip_APPLICATION_OUTPUT_DIRECTORIES TRUE)\n'
             'set(Cwhip_INCLUDE_DIR "${prefix}/include")\n'
             'function(cwhip_require_sourceview)\n'
             '    file(WRITE "${CMAKE_BINARY_DIR}/sourceview-args.txt" "${ARGV}")\n'
             'endfunction()\n'
             'function(cwhip_add_program name)\n'
+            '    file(WRITE "${CMAKE_BINARY_DIR}/program-args.txt" "${ARGV}")\n'
             '    add_custom_target("${name}")\n'
             '    set_target_properties("${name}" PROPERTIES\n'
             '        CWHIP_EXECUTABLE "${CMAKE_BINARY_DIR}/cdbg")\n'
+            'endfunction()\n'
+        )
+        (package / "CwhipApplicationDefaults.cmake").write_text(
+            'function(cwhip_apply_application_defaults)\n'
+            '    if(NOT EXISTS "${CMAKE_BINARY_DIR}/application-defaults-called.txt" AND\n'
+            '       (DEFINED CWHIP_BIN_DIR OR DEFINED CWHIP_LIB_DIR))\n'
+            '        message(FATAL_ERROR "Application defaults were applied too late")\n'
+            '    endif()\n'
+            '    file(WRITE "${CMAKE_BINARY_DIR}/application-defaults-called.txt" "yes")\n'
+            '    set(settings_home "$ENV{XDG_CONFIG_HOME}")\n'
+            '    if(settings_home STREQUAL "" AND NOT "$ENV{HOME}" STREQUAL "")\n'
+            '        set(settings_home "$ENV{HOME}/.config")\n'
+            '    endif()\n'
+            '    set(settings_file "${settings_home}/cwhip/sdk.toml")\n'
+            '    if(EXISTS "${settings_file}")\n'
+            '        file(STRINGS "${settings_file}" settings_lines)\n'
+            '        set(in_applications FALSE)\n'
+            '        foreach(line IN LISTS settings_lines)\n'
+            '            if(line MATCHES "^[ \\t]*\\\\[applications\\\\][ \\t]*$")\n'
+            '                set(in_applications TRUE)\n'
+            '            elseif(line MATCHES "^[ \\t]*\\\\[")\n'
+            '                set(in_applications FALSE)\n'
+            '            elseif(in_applications AND line MATCHES "^[ \\t]*install_prefix[ \\t]*=[ \\t]*\\"([^\\"]+)\\"")\n'
+            '                set(app_install_prefix "${CMAKE_MATCH_1}")\n'
+            '            elseif(in_applications AND line MATCHES "^[ \\t]*build_type[ \\t]*=[ \\t]*\\"([^\\"]+)\\"")\n'
+            '                set(app_build_type "${CMAKE_MATCH_1}")\n'
+            '            endif()\n'
+            '        endforeach()\n'
+            '    endif()\n'
+            '    if(DEFINED app_install_prefix AND NOT DEFINED CACHE{CMAKE_INSTALL_PREFIX})\n'
+            '        if(NOT "$ENV{CMAKE_INSTALL_PREFIX}" STREQUAL "")\n'
+            '            set(app_install_prefix "$ENV{CMAKE_INSTALL_PREFIX}")\n'
+            '        endif()\n'
+            '        set(CMAKE_INSTALL_PREFIX "${app_install_prefix}" CACHE PATH "Install prefix")\n'
+            '        set(CMAKE_INSTALL_PREFIX "${app_install_prefix}" PARENT_SCOPE)\n'
+            '    endif()\n'
+            '    if(DEFINED app_build_type AND NOT DEFINED CACHE{CMAKE_BUILD_TYPE})\n'
+            '        if(DEFINED ENV{CMAKE_BUILD_TYPE})\n'
+            '            set(app_build_type "$ENV{CMAKE_BUILD_TYPE}")\n'
+            '        endif()\n'
+            '        set(CMAKE_BUILD_TYPE "${app_build_type}" CACHE STRING "Build type")\n'
+            '        set(CMAKE_BUILD_TYPE "${app_build_type}" PARENT_SCOPE)\n'
+            '    endif()\n'
             'endfunction()\n'
         )
         (package / "CwhipConfigVersion.cmake").write_text(
@@ -84,6 +129,14 @@ class SdkDiscoveryTest(unittest.TestCase):
 
     def select_legacy(self, prefix):
         self.write_legacy_settings(f"sdk_prefix = {json.dumps(str(prefix))}\n")
+
+    def write_application_defaults(self, install_prefix, build_type):
+        self.write_settings(
+            f"sdk_prefix = {json.dumps(str(self.fallback))}\n\n"
+            "[applications]\n"
+            f"install_prefix = {json.dumps(str(install_prefix))}\n"
+            f"build_type = {json.dumps(build_type)}\n"
+        )
 
     def configure(self, setup=False, success=True, extra=(), shell_input=None):
         self.shell_record.unlink(missing_ok=True)
@@ -109,6 +162,7 @@ class SdkDiscoveryTest(unittest.TestCase):
 
     def assert_selected(self, prefix):
         self.assertEqual((self.build / "selected-sdk.txt").read_text(), str(prefix))
+        self.assertTrue((self.build / "application-defaults-called.txt").exists())
 
     def assert_both_select(self, prefix, shell_prefix=None):
         self.configure()
@@ -292,7 +346,13 @@ class SdkDiscoveryTest(unittest.TestCase):
 
     def test_setup_real_shell_path_and_release_mode(self):
         sdk = self.make_sdk('shell SDK "quotes"')
-        self.select(sdk)
+        application_install = self.root / "application-install"
+        self.write_settings(
+            f"sdk_prefix = {json.dumps(str(sdk))}\n\n"
+            "[applications]\n"
+            f"install_prefix = {json.dumps(str(application_install))}\n"
+            'build_type = "Debug"\n'
+        )
         before = self.sdk_settings.read_bytes()
         self.env["PATH"] = os.environ["PATH"]
         self.configure(
@@ -303,15 +363,109 @@ class SdkDiscoveryTest(unittest.TestCase):
             str(self.project / "bin"), str(self.project / "scripts"), str(sdk / "bin"),
         ])
         self.assert_selected(sdk)
-        self.assertIn("CMAKE_BUILD_TYPE:STRING=Release", (self.build / "CMakeCache.txt").read_text())
+        cache = (self.build / "CMakeCache.txt").read_text()
+        self.assertIn(f"CMAKE_INSTALL_PREFIX:PATH={application_install}", cache)
+        self.assertIn("CMAKE_BUILD_TYPE:STRING=Release", cache)
         self.assertEqual(self.sdk_settings.read_bytes(), before)
+
+    def test_application_defaults_are_inherited_and_cached(self):
+        install_prefix = self.root / "application-install"
+        self.write_application_defaults(install_prefix, "RelWithDebInfo")
+        self.configure()
+        self.assertTrue((self.build / "application-defaults-called.txt").exists())
+        cache = (self.build / "CMakeCache.txt").read_text()
+        self.assertIn(f"CMAKE_INSTALL_PREFIX:PATH={install_prefix}", cache)
+        self.assertIn("CMAKE_BUILD_TYPE:STRING=RelWithDebInfo", cache)
+        self.assertIn(
+            f"OUTPUT_DIRECTORY;{self.project}/bin",
+            (self.build / "program-args.txt").read_text(),
+        )
+        self.assertEqual(
+            (self.build / "sourceview-args.txt").read_text(),
+            f"RESOURCE_DIRECTORY;{self.project}/share/cwhip/modules/sourceview/0.1.0/language-specs",
+        )
+
+        self.write_application_defaults(self.root / "changed-install", "Release")
+        self.configure()
+        cache = (self.build / "CMakeCache.txt").read_text()
+        self.assertIn(f"CMAKE_INSTALL_PREFIX:PATH={install_prefix}", cache)
+        self.assertIn("CMAKE_BUILD_TYPE:STRING=RelWithDebInfo", cache)
+
+    def test_explicit_cmake_defaults_override_application_defaults(self):
+        self.write_application_defaults(self.root / "sdk-install", "Release")
+        install_prefix = self.root / "explicit-install"
+        self.configure(extra=(
+            f"-DCMAKE_INSTALL_PREFIX={install_prefix}",
+            "-DCMAKE_BUILD_TYPE=Debug",
+        ))
+        cache = (self.build / "CMakeCache.txt").read_text()
+        self.assertIn(f"CMAKE_INSTALL_PREFIX:PATH={install_prefix}", cache)
+        self.assertIn("CMAKE_BUILD_TYPE:STRING=Debug", cache)
+
+    def test_environment_install_prefix_overrides_application_default(self):
+        self.write_application_defaults(self.root / "sdk-install", "Release")
+        prefix = self.root / "environment-install"
+        self.env["CMAKE_INSTALL_PREFIX"] = str(prefix)
+        self.configure()
+        cache = (self.build / "CMakeCache.txt").read_text()
+        self.assertIn(f"CMAKE_INSTALL_PREFIX:PATH={prefix}", cache)
+        self.assertIn("CMAKE_BUILD_TYPE:STRING=Release", cache)
+
+    def test_environment_build_type_overrides_application_default(self):
+        self.write_application_defaults(self.root / "sdk-install", "Release")
+        self.env["CMAKE_BUILD_TYPE"] = "Debug"
+        self.configure()
+        self.assertIn("CMAKE_BUILD_TYPE:STRING=Debug", (self.build / "CMakeCache.txt").read_text())
+
+    def test_explicit_empty_build_type_is_preserved(self):
+        self.write_application_defaults(self.root / "sdk-install", "Release")
+        self.configure(extra=("-DCMAKE_BUILD_TYPE=",))
+        self.assertIn("CMAKE_BUILD_TYPE:STRING=\n", (self.build / "CMakeCache.txt").read_text())
+
+        self.write_application_defaults(self.root / "changed-install", "Debug")
+        self.configure()
+        self.assertIn("CMAKE_BUILD_TYPE:STRING=\n", (self.build / "CMakeCache.txt").read_text())
+
+    def test_explicit_default_install_prefix_is_preserved_in_cache(self):
+        self.write_application_defaults(self.root / "sdk-install", "Release")
+        self.configure(extra=("-DCMAKE_INSTALL_PREFIX=/usr/local",))
+        self.assertIn("CMAKE_INSTALL_PREFIX:PATH=/usr/local\n",
+                      (self.build / "CMakeCache.txt").read_text())
+
+        self.write_application_defaults(self.root / "changed-install", "Debug")
+        self.configure()
+        cache = (self.build / "CMakeCache.txt").read_text()
+        self.assertIn("CMAKE_INSTALL_PREFIX:PATH=/usr/local\n", cache)
+        self.assertIn("CMAKE_BUILD_TYPE:STRING=Release", cache)
+
+    def test_setup_without_mode_inherits_application_build_type(self):
+        self.write_application_defaults(self.root / "application-install", "RelWithDebInfo")
+        self.configure(setup=True)
+        cache = (self.build / "CMakeCache.txt").read_text()
+        self.assertIn("CMAKE_BUILD_TYPE:STRING=RelWithDebInfo", cache)
+        self.assertEqual(self.shell_record.read_text(), str(self.fallback))
+
+    def test_setup_without_mode_preserves_existing_cache(self):
+        install_prefix = self.root / "cached-install"
+        self.write_application_defaults(install_prefix, "Release")
+        self.configure(setup=True)
+
+        self.write_application_defaults(self.root / "changed-install", "Debug")
+        self.configure(setup=True)
+        cache = (self.build / "CMakeCache.txt").read_text()
+        self.assertIn(f"CMAKE_INSTALL_PREFIX:PATH={install_prefix}", cache)
+        self.assertIn("CMAKE_BUILD_TYPE:STRING=Release", cache)
 
     def test_setup_only_needs_python_for_existing_settings(self):
         python = self.tools / "python3"
         python.write_text("#!/bin/sh\necho 'unexpected python invocation' >&2\nexit 99\n")
         python.chmod(0o755)
         cmake = self.tools / "cmake"
-        cmake.write_text("#!/bin/sh\nexit 0\n")
+        cmake.write_text(
+            "#!/bin/sh\n"
+            "printf 'CMAKE_BUILD_TYPE:STRING=\\n' > CMakeCache.txt\n"
+            "exit 0\n"
+        )
         cmake.chmod(0o755)
         self.configure(setup=True)
         self.env["CWHIP_SDK"] = str(self.fallback)

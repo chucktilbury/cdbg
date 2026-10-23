@@ -10,21 +10,24 @@ fi
 
 _PROJECT_LOC=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)
 _PROJECT_NAME=${_PROJECT_LOC##*/}
-_BUILD_TYPE=${1:-debug}
+_BUILD_TYPE=${1:-default}
+unset CWHIP_BUILD_TYPE
 if (( $# > 1 )); then
     printf 'Usage: %s [debug|release|profile]\n' "$0" >&2
     exit 2
 fi
-case "$_BUILD_TYPE" in
-    debug) CWHIP_BUILD_TYPE=Debug ;;
-    release) CWHIP_BUILD_TYPE=Release ;;
-    profile) CWHIP_BUILD_TYPE=RelWithDebInfo ;;
-    *)
-        printf 'Unknown build type: %s (use debug, release or profile)\n' "$_BUILD_TYPE" >&2
-        exit 2
-        ;;
-esac
-export _PROJECT_LOC _PROJECT_NAME _BUILD_TYPE CWHIP_BUILD_TYPE
+if (( $# )); then
+    case "$_BUILD_TYPE" in
+        debug) CWHIP_BUILD_TYPE=Debug ;;
+        release) CWHIP_BUILD_TYPE=Release ;;
+        profile) CWHIP_BUILD_TYPE=RelWithDebInfo ;;
+        *)
+            printf 'Unknown build type: %s (use debug, release or profile)\n' "$_BUILD_TYPE" >&2
+            exit 2
+            ;;
+    esac
+fi
+export _PROJECT_LOC _PROJECT_NAME
 
 if [[ -z "${CWHIP_SDK:-}" ]]; then
     config_home="${XDG_CONFIG_HOME:-}"
@@ -58,5 +61,18 @@ fi
 
 mkdir -p -- "$_PROJECT_LOC/build"
 cd -- "$_PROJECT_LOC/build"
-cmake .. "-DCMAKE_BUILD_TYPE=$CWHIP_BUILD_TYPE"
+if [[ -n ${CWHIP_BUILD_TYPE:-} ]]; then
+    cmake .. "-DCMAKE_BUILD_TYPE=$CWHIP_BUILD_TYPE"
+else
+    cmake ..
+    CWHIP_BUILD_TYPE=$(sed -n 's/^CMAKE_BUILD_TYPE:[^=]*=//p' CMakeCache.txt | head -n 1)
+    case "$CWHIP_BUILD_TYPE" in
+        Debug) _BUILD_TYPE=debug ;;
+        Release) _BUILD_TYPE=release ;;
+        RelWithDebInfo) _BUILD_TYPE=profile ;;
+        "") _BUILD_TYPE=default ;;
+        *) _BUILD_TYPE=$CWHIP_BUILD_TYPE ;;
+    esac
+fi
+export _BUILD_TYPE CWHIP_BUILD_TYPE
 exec bash --rcfile "$_PROJECT_LOC/.project_env" -i
