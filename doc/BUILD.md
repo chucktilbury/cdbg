@@ -6,8 +6,8 @@ and does not read from or build a compiler workspace checkout.
 ## Requirements
 
 - CMake 3.24 or newer, a C compiler, Python 3.11 or newer and `pkg-config`
-- An installed Cwhip SDK version `0.0.1` with GTK, GtkSourceView and application
-  output-directory support enabled
+- An installed Cwhip SDK version `0.0.2`, ABI `numeric-v2`, with GTK,
+  GtkSourceView and application output-directory support enabled
 - GTK 4.10 or newer and GtkSourceView 5 development files
 - For the GUI/GDB integration tests: GDB, Xvfb and `dbus-daemon`
 
@@ -17,6 +17,44 @@ checkout path is needed. The GUI libraries above are native build dependencies.
 Runtime object inspection also needs the SDK runtime's type debug information;
 the SDK retains it for GNU/Clang builds, including Release. Stripping it from
 the runtime archive disables those inspection capabilities.
+
+### Numeric-v2 migration
+
+This version depends on the compiler numeric migration in
+[chucktilbury/cwhip#25](https://github.com/chucktilbury/cwhip/pull/25)
+and the accompanying numeric SDK migration PR (pending). Build a fresh SDK
+from those changes; do not mix rebuilt applications with old native packages.
+CMake checks both the exact SDK version and `Cwhip_SDK_ABI = numeric-v2`.
+Rebuilt packages declare `sdk-abi = "numeric-v2"` under `[package]` in their
+package manifests; the SDK's package helper generates cdbg's build manifest.
+No user-installed SDK or configuration is rewritten by this project.
+
+The application uses `int64` for indices, counts and callback parameters,
+`uint64` for unsigned counts, and the new `String.toInt64()` parser.
+The old language types `int`, `unsigned` and `float` are reserved, not aliases.
+Typical source migrations use `int64`, `uint64` and `fp64`, respectively,
+but dynamic extraction must match the actual boxed type: small integer
+literals now box as `int8`/`int16`/`int32`, not automatically as `int64`.
+Extract the original type before explicitly converting.
+
+Unsuffixed decimal literals select `fp32`; use the `f64` suffix when the old
+direct-to-`fp64` rounding matters (`0.1f64`, not `fp64(0.1)`).
+Small integer arithmetic also retains its inferred width; widen operands
+before the operation when the previous 64-bit intermediate is required.
+Native C `int`/`unsigned`/`float` declarations are unchanged.
+
+Run focused migration coverage without the broad legacy session suite:
+
+```sh
+ctest --test-dir build -R 'cdbg_(numeric|parser|cli|terminal|sdk_discovery)$' --output-on-failure
+```
+
+`cdbg_numeric` requires GDB, Xvfb and `dbus-daemon`. It checks all ten
+scalar and list/dict numeric representations, exact runtime tags, fp32 bit
+decoding (including signed zero, infinity, NaN and a subnormal), locals,
+watches, source breakpoints, Step Into/Over/Out and frame selection through
+real GDB/MI and the GTK debugger. It retains `numeric-values.mi` and
+`numeric-stepping.mi` in the test work directory for diagnosis.
 
 ## Configure and build
 

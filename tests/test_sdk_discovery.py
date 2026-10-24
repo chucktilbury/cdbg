@@ -55,6 +55,7 @@ class SdkDiscoveryTest(unittest.TestCase):
             'file(WRITE "${CMAKE_BINARY_DIR}/selected-sdk.txt" "${prefix}")\n'
             'include("${CMAKE_CURRENT_LIST_DIR}/CwhipApplicationDefaults.cmake")\n'
             'set(Cwhip_APPLICATION_OUTPUT_DIRECTORIES TRUE)\n'
+            'set(Cwhip_SDK_ABI "numeric-v2")\n'
             'set(Cwhip_INCLUDE_DIR "${prefix}/include")\n'
             'function(cwhip_require_sourceview)\n'
             '    file(WRITE "${CMAKE_BINARY_DIR}/sourceview-args.txt" "${ARGV}")\n'
@@ -110,11 +111,28 @@ class SdkDiscoveryTest(unittest.TestCase):
             'endfunction()\n'
         )
         (package / "CwhipConfigVersion.cmake").write_text(
-            'set(PACKAGE_VERSION "0.0.1")\n'
-            'set(PACKAGE_VERSION_COMPATIBLE TRUE)\n'
-            'set(PACKAGE_VERSION_EXACT TRUE)\n'
+            'set(PACKAGE_VERSION "0.0.2")\n'
+            'if(PACKAGE_FIND_VERSION VERSION_EQUAL PACKAGE_VERSION)\n'
+            '    set(PACKAGE_VERSION_COMPATIBLE TRUE)\n'
+            '    set(PACKAGE_VERSION_EXACT TRUE)\n'
+            'endif()\n'
         )
         return prefix
+
+    def test_reject_old_sdk_version(self):
+        version = self.fallback / "lib/cmake/Cwhip/CwhipConfigVersion.cmake"
+        version.write_text(version.read_text().replace('"0.0.2"', '"0.0.1"'))
+        self.assertIn("0.0.2", self.configure(success=False))
+
+    def test_reject_incompatible_abi(self):
+        config = self.fallback / "lib/cmake/Cwhip/CwhipConfig.cmake"
+        config.write_text(config.read_text().replace('"numeric-v2"', '"legacy"'))
+        self.assertIn("numeric-v2 SDK ABI", self.configure(success=False))
+
+    def test_reject_missing_abi(self):
+        config = self.fallback / "lib/cmake/Cwhip/CwhipConfig.cmake"
+        config.write_text(config.read_text().replace('set(Cwhip_SDK_ABI "numeric-v2")', ''))
+        self.assertIn("numeric-v2 SDK ABI", self.configure(success=False))
 
     def write_settings(self, content):
         self.sdk_settings.parent.mkdir(parents=True, exist_ok=True)

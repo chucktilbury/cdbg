@@ -8,6 +8,9 @@ LIMIT = 256
 CHILDREN = 8
 DEPTH = 2
 
+SIGNED_TAGS = {1: 64, 12: 8, 14: 16, 16: 32}
+UNSIGNED_TAGS = {8: 64, 13: 8, 15: 16, 17: 32}
+
 
 def quoted(data):
     return json.dumps(data.decode("utf-8", errors="backslashreplace"), ensure_ascii=False)
@@ -51,14 +54,18 @@ def object_summary(value, name):
 def dynamic(value, depth):
     tag = int(value["tag"])
     integer = int(value["integer"])
-    if tag == 1:
-        return str(integer)
-    if tag == 8:
-        return str(integer & ((1 << 64) - 1))
+    if tag in SIGNED_TAGS:
+        width = SIGNED_TAGS[tag]
+        bits = integer & ((1 << width) - 1)
+        return str(bits - (1 << width) if bits & (1 << (width - 1)) else bits)
+    if tag in UNSIGNED_TAGS:
+        return str(integer & ((1 << UNSIGNED_TAGS[tag]) - 1))
     if tag == 6:
         return "true" if integer else "false"
     if tag == 7:
         return str(struct.unpack("=d", struct.pack("=Q", integer & ((1 << 64) - 1)))[0])
+    if tag == 18:
+        return str(struct.unpack("=f", struct.pack("=I", integer & ((1 << 32) - 1)))[0])
     if tag == 2:
         return string(value["pointer"])
     if tag == 3:
@@ -131,8 +138,10 @@ def friendly(value, cwhip, depth=0):
         return raw(value)
     if typ.code == gdb.TYPE_CODE_BOOL:
         return "true" if bool(value) else "false"
-    if typ.code in (gdb.TYPE_CODE_INT, gdb.TYPE_CODE_FLT, gdb.TYPE_CODE_CHAR):
-        return raw(value)
+    if typ.code in (gdb.TYPE_CODE_INT, gdb.TYPE_CODE_CHAR):
+        return str(int(value))
+    if typ.code == gdb.TYPE_CODE_FLT:
+        return str(float(value))
     if typ.code != gdb.TYPE_CODE_PTR:
         return raw(value) + " <structure not decoded>"
     name = typ.target().name or str(typ.target())
