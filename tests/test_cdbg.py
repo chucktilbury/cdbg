@@ -366,6 +366,7 @@ class DebugChecks {
     }
     bool valuesTick() {
         if (stage == 0 && ui.loaded && idle()) {
+            ui.breakAtStart = false
             require(ui.valueInspector && ui.inspection.pageCount() == 7, "value inspector and Runtime Values tab")
             ui.addBreakpoint(format("{}:19", System.Process().getEnv("CDBG_TEST_SOURCE")))
             list names = ["counter", "positive", "truth", "fraction", "message", "missing",
