@@ -22,9 +22,11 @@ the runtime archive disables those inspection capabilities.
 ### Numeric-v2 migration
 
 This version depends on the compiler numeric migration in
-[chucktilbury/cwhip#25](https://github.com/chucktilbury/cwhip/pull/25)
-and the accompanying numeric SDK migration PR (pending). Build a fresh SDK
-from those changes; do not mix rebuilt applications with old native packages.
+[chucktilbury/cwhip#25](https://github.com/chucktilbury/cwhip/pull/25) and the
+SDK/stdlib migration in
+[chucktilbury/cwhip#26](https://github.com/chucktilbury/cwhip/pull/26). Both are
+merged. Build a fresh SDK from those changes; do not mix rebuilt applications
+with old native packages.
 CMake checks both the exact SDK version and `Cwhip_SDK_ABI = numeric-v2`.
 Rebuilt packages declare `sdk-abi = "numeric-v2"` under `[package]` in their
 package manifests; the SDK's package helper generates cdbg's build manifest.

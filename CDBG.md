@@ -22,12 +22,14 @@ Run `cmake --build build --target test-all` for the component's build and test
 suite; `cmake --install build --prefix /path/to/install` installs the
 executable and language resource. See [BUILD.md](doc/BUILD.md) for prerequisites,
 test detection, the optional no-op check and cleaning.
-The project-owned setup shell follows the Cwhip template: `debug` is the default,
-with `release` and `profile` alternatives. It starts in `build/`; the executable
-is written to the repository's `bin/`, with its language resource under `share/`.
-Direct CMake configuration and output-directory overrides are also documented
-in the build guide. The installed SDK needs application output-directory
-support in addition to version `0.0.2` and ABI `numeric-v2`.
+The project-owned setup shell follows the Cwhip template. Without a mode it
+inherits the installed SDK's application build type or the existing CMake
+cache; `debug`, `release` and `profile` explicitly select `Debug`, `Release`
+and `RelWithDebInfo`. It starts in `build/`; the executable is written to the
+repository's `bin/`, with its language resource under `share/`. Direct CMake
+configuration and output-directory overrides are also documented in the build
+guide. The installed SDK needs application output-directory support in
+addition to version `0.0.2` and ABI `numeric-v2`.
 
 `cdbg [SOURCE.cw|EXECUTABLE [-- ARGS...]]` opens the GUI in the foreground;
 arguments after the target are passed individually to the inferior, without a
