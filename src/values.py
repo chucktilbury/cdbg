@@ -10,6 +10,10 @@ DEPTH = 2
 
 SIGNED_TAGS = {1: 64, 12: 8, 14: 16, 16: 32}
 UNSIGNED_TAGS = {8: 64, 13: 8, 15: 16, 17: 32}
+NUMERIC_NAMES = {
+    1: "int64", 8: "uint64", 12: "int8", 13: "uint8",
+    14: "int16", 15: "uint16", 16: "int32", 17: "uint32",
+}
 
 
 def quoted(data):
@@ -51,6 +55,30 @@ def object_summary(value, name):
         name, int(meta["field_count"]), raw(value))
 
 
+def range_value(value):
+    if int(value) == 0:
+        return "null"
+    actual = object_name(value)
+    if actual != "range":
+        return "<invalid range runtime type {}>".format(actual)
+    bounds = runtime_object(value, "CwhipRange")
+    tag = int(bounds["element_tag"])
+    name = NUMERIC_NAMES.get(tag)
+    if name is None:
+        return "<range with invalid element tag {}>".format(tag)
+    width = SIGNED_TAGS.get(tag, UNSIGNED_TAGS.get(tag))
+    mask = (1 << width) - 1
+
+    def endpoint(bits):
+        bits = int(bits) & mask
+        if tag in SIGNED_TAGS and bits & (1 << (width - 1)):
+            bits -= 1 << width
+        return str(bits)
+
+    return "range<{}>({}..{})".format(
+        name, endpoint(bounds["first"]), endpoint(bounds["last"]))
+
+
 def dynamic(value, depth):
     tag = int(value["tag"])
     integer = int(value["integer"])
@@ -77,7 +105,11 @@ def dynamic(value, depth):
             return string(pointer)
         if name in ("list", "dict", "buffer"):
             return container(pointer, name, depth)
+        if name == "range":
+            return range_value(pointer)
         return object_summary(pointer, name)
+    if tag == 19:
+        return range_value(value["pointer"])
     if tag in (4, 5, 9):
         name = {4: "dict", 5: "list", 9: "buffer"}[tag]
         return container(value["pointer"], name, depth)
@@ -151,6 +183,8 @@ def friendly(value, cwhip, depth=0):
         return string(value)
     if name in ("list", "dict", "buffer"):
         return container(value, name, depth)
+    if name == "range" or name.startswith("range<"):
+        return range_value(value)
     # Opaque class debug types lack members. Say so instead of guessing fields.
     if typ.target().code == gdb.TYPE_CODE_STRUCT:
         if name in ("handle", "callback"):

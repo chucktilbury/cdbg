@@ -215,9 +215,12 @@ In Cwhip frames, identified by source-file DWARF and named DWARF types:
   its length and up to 256 bytes in hexadecimal. Runtime-tagged
   signed/unsigned integers of all four widths, fp32/fp64, boolean and String
   entries are decoded. Floating payloads are bit-decoded at their actual width.
-  Nested containers are bounded to two levels; other tags remain explicitly
-  labeled runtime tags.
-- Classes show their DWARF type, runtime field count and address with
+  Typed `range<T>` values show their inclusive typed bounds, including
+  descending ranges; boxed ranges in lists and maps use the same summary, and
+  typed or boxed null ranges display as `null`. Range-loop iterators appear as
+  their current scalar values in locals and watches. Nested containers are
+  bounded to two levels; other tags remain explicitly labeled runtime tags.
+- Other classes show their DWARF type, runtime field count and address with
   **members unavailable**. The compiler currently emits forward declarations,
   not member DWARF: the inspector does not invent field offsets. `any`/`type`
   structures and opaque handles are not decoded.
