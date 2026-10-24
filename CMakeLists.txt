@@ -48,11 +48,17 @@ if(NOT cwhip_sdk_prefix STREQUAL "")
     unset(Cwhip_DIR)
     find_package(Cwhip 0.0.1 EXACT CONFIG REQUIRED
         PATHS "${cwhip_sdk_prefix}" NO_DEFAULT_PATH)
-    cwhip_apply_application_defaults()
 else()
     find_package(Cwhip 0.0.1 EXACT CONFIG REQUIRED)
-    cwhip_apply_application_defaults()
 endif()
+if(NOT COMMAND cwhip_apply_application_defaults)
+    message(FATAL_ERROR
+        "Selected Cwhip SDK '${Cwhip_PREFIX}' lacks application-defaults support "
+        "(cwhip_apply_application_defaults). Rebuild and reinstall an updated "
+        "Cwhip SDK with application-defaults support to this prefix, or select "
+        "an updated SDK via CWHIP_SDK, then rerun configuration.")
+endif()
+cwhip_apply_application_defaults()
 
 project(CwhipDebugger VERSION 0.0.1 LANGUAGES C)
 

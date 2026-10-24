@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Reject SDKs lacking the application-defaults helper with an actionable error
+  naming the selected SDK prefix and explaining how to update the installation.
 - Apply the installed Cwhip SDK's shared `[applications]` install-prefix and
   build-type defaults before cdbg's own CMake cache defaults. Preserve explicit
   CMake options and existing cache values; let setup inherit defaults when no
