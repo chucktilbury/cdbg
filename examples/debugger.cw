@@ -1,12 +1,12 @@
 class Counter {
-    int double(int value) {
-        int doubled = value * 2
+    int64 double(int64 value) {
+        int64 doubled = value * 2
         return doubled
     }
 }
 
 start {
-    int counter = 21
+    int64 counter = 21
     counter = Counter().double(counter)
     print(counter)
 }

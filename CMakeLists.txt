@@ -46,10 +46,10 @@ if(NOT cwhip_sdk_prefix STREQUAL "")
     message(STATUS "Using Cwhip SDK prefix: ${cwhip_sdk_prefix}")
     unset(Cwhip_DIR CACHE)
     unset(Cwhip_DIR)
-    find_package(Cwhip 0.0.1 EXACT CONFIG REQUIRED
+    find_package(Cwhip 0.0.2 EXACT CONFIG REQUIRED
         PATHS "${cwhip_sdk_prefix}" NO_DEFAULT_PATH)
 else()
-    find_package(Cwhip 0.0.1 EXACT CONFIG REQUIRED)
+    find_package(Cwhip 0.0.2 EXACT CONFIG REQUIRED)
 endif()
 if(NOT COMMAND cwhip_apply_application_defaults)
     message(FATAL_ERROR
@@ -59,6 +59,10 @@ if(NOT COMMAND cwhip_apply_application_defaults)
         "an updated SDK via CWHIP_SDK, then rerun configuration.")
 endif()
 cwhip_apply_application_defaults()
+
+if(NOT Cwhip_SDK_ABI STREQUAL "numeric-v2")
+    message(FATAL_ERROR "cdbg requires the Cwhip numeric-v2 SDK ABI; rebuild the SDK and native modules")
+endif()
 
 project(CwhipDebugger VERSION 0.0.1 LANGUAGES C)
 
@@ -158,6 +162,9 @@ if(BUILD_TESTING)
         add_test(NAME cdbg_session
             COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_cdbg.py"
                 ${CDBG_SESSION_ARGS})
+        add_test(NAME cdbg_numeric
+            COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_numeric.py"
+                ${CDBG_SESSION_ARGS} --work "${CDBG_TEST_WORK}/numeric")
         if(NOT CDBG_RUNTIME_SOURCE)
             message(STATUS "cdbg runtime-source stepping excluded (set CDBG_RUNTIME_SOURCE to enable)")
         endif()

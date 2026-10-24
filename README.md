@@ -73,7 +73,9 @@ dependency.
 The current prototype uses local GDB; its friendly value inspector requires
 Python-enabled GDB with `gdb.MICommand`. It is an active proof of concept and
 compiler-testing workload, not a finished production debugger. Its CMake
-configuration requires the exact Cwhip SDK version `0.0.1`.
+configuration requires the exact Cwhip SDK version `0.0.2` and ABI `numeric-v2`.
+Rebuild the SDK and native packages together; legacy numeric modules are not
+compatible. See [numeric migration notes](doc/BUILD.md#numeric-v2-migration).
 Project changes are recorded in [the changelog](doc/CHANGELOG.md).
 
 ## License

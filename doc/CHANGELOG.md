@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Migrate to Cwhip SDK `0.0.2` / `numeric-v2`, explicitly rejecting missing or
+  incompatible SDK ABI identifiers. Update application/example/test Cwhip
+  sources and numeric string parsers while retaining exact dynamic extraction.
+- Decode all ten boxed numeric types, including low-bit fp32 payloads, and
+  display scalar small integers as numbers rather than GDB character literals.
+  Keep native/raw values separate. Add focused real GDB/GTK numeric, locals,
+  watches, source-breakpoint and stepping regression coverage.
 - Reject SDKs lacking the application-defaults helper with an actionable error
   naming the selected SDK prefix and explaining how to update the installation.
 - Apply the installed Cwhip SDK's shared `[applications]` install-prefix and

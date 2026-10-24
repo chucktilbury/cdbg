@@ -7,7 +7,7 @@ an editor mode or a finished debugger. The Cwhip compiler is still `cwhip`.
 ## Build and launch
 
 Install CMake 3.24+, Python 3.11+, GTK 4.10+, GtkSourceView 5 development
-files, and an installed Cwhip 0.0.1 SDK built with GTK and GtkSourceView.
+files, and an installed Cwhip 0.0.2 SDK (ABI `numeric-v2`) built with GTK and GtkSourceView.
 The debugger build does not use a compiler checkout:
 
 ```sh
@@ -27,7 +27,7 @@ with `release` and `profile` alternatives. It starts in `build/`; the executable
 is written to the repository's `bin/`, with its language resource under `share/`.
 Direct CMake configuration and output-directory overrides are also documented
 in the build guide. The installed SDK needs application output-directory
-support in addition to version `0.0.1`.
+support in addition to version `0.0.2` and ABI `numeric-v2`.
 
 `cdbg [SOURCE.cw|EXECUTABLE [-- ARGS...]]` opens the GUI in the foreground;
 arguments after the target are passed individually to the inferior, without a
@@ -203,14 +203,18 @@ treated as a Cwhip object merely because of its address.
 
 In Cwhip frames, identified by source-file DWARF and named DWARF types:
 
-- `int`, `unsigned`, `float` and `bool` have scalar values (`true`/`false`
-  for booleans); null object references show `null`.
+- `int8`/`uint8`, `int16`/`uint16`, `int32`/`uint32`, `int64`/`uint64`,
+  `fp32`/`fp64` and `bool` have scalar values (`true`/`false` for booleans);
+  null object references show `null`. Small integers display as decimal
+  numbers, not character literals; Runtime Values retains GDB's raw formatting.
 - `String` shows quoted UTF-8 contents with escaped quotes, backslashes and
   control characters, including embedded NUL. Invalid UTF-8 bytes are escaped.
 - `list` and `dict` show their length and up to eight entries; `buffer` shows
-  its length and up to 256 bytes in hexadecimal. Runtime-tagged integer,
-  unsigned, float, boolean and String entries are decoded. Nested containers
-  are bounded to two levels; other tags remain explicitly labeled runtime tags.
+  its length and up to 256 bytes in hexadecimal. Runtime-tagged
+  signed/unsigned integers of all four widths, fp32/fp64, boolean and String
+  entries are decoded. Floating payloads are bit-decoded at their actual width.
+  Nested containers are bounded to two levels; other tags remain explicitly
+  labeled runtime tags.
 - Classes show their DWARF type, runtime field count and address with
   **members unavailable**. The compiler currently emits forward declarations,
   not member DWARF: the inspector does not invent field offsets. `any`/`type`

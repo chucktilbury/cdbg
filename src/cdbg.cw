@@ -33,7 +33,7 @@ class DebugSource {
     String path
     GtkSource.View view
     Gtk.ScrolledWindow scroll
-    int centeredStop
+    int64 centeredStop
     callback<void(DebugSource)> closeAction
     DebugSource(String filename, GtkSource.View text, Gtk.ScrolledWindow container) {
         path = filename
@@ -61,19 +61,19 @@ class Cdbg {
     Cdbg _self()
     Gtk.Window window
     Gtk.MenuBar menu
-    int loadItem
-    int openItem
-    int quitItem
-    int findItem
+    int64 loadItem
+    int64 openItem
+    int64 quitItem
+    int64 findItem
     Gtk.FileDialog fileDialog
     Gtk.TransientWindow findWindow
     Gtk.Entry findEntry
     Gtk.Label findStatus
     String targetPath
     String sourceText
-    int toggleBreakItem
-    int toggleEnableItem
-    int setupItem
+    int64 toggleBreakItem
+    int64 toggleEnableItem
+    int64 setupItem
     Gtk.TransientWindow setupWindow
     Gtk.CheckButton setupStart
     Gtk.Entry setupArguments
@@ -99,7 +99,7 @@ class Cdbg {
     bool stateWritable
     String stateTarget
     bool restoringBreakpoints
-    int restorePending
+    int64 restorePending
     Gtk.ContextMenu watchMenu
     Gtk.TransientWindow watchWindow
     Gtk.Entry watchEntry
@@ -108,7 +108,7 @@ class Cdbg {
     list breakpointEntries
     list breakpointLocations
     list stackFrames
-    int selectedFrame
+    int64 selectedFrame
     bool executing
     Gtk.Label status
     GtkSource.View source
@@ -138,9 +138,9 @@ class Cdbg {
     list expressions
     list arguments
     DebugRequest active
-    int sequence
-    int mode
-    int pollToken
+    int64 sequence
+    int64 mode
+    int64 pollToken
     bool closed
     bool loaded
     bool running
@@ -156,7 +156,7 @@ class Cdbg {
     String stopAddress
     String failure
     String inferiorPid
-    int stopCount
+    int64 stopCount
 
     Cdbg() {
         requests = []
@@ -218,17 +218,17 @@ class Cdbg {
         window.setChild(layout)
         menu = Gtk.MenuBar()
         layout.append(menu)
-        int fileMenu = menu.addMenu("File")
+        int64 fileMenu = menu.addMenu("File")
         loadItem = menu.addItem(fileMenu, "Load Executable...", _self().chooseExecutable)
         openItem = menu.addItem(fileMenu, "Open Source Code...", _self().chooseSource)
         menu.addSeparator(fileMenu)
         quitItem = menu.addItem(fileMenu, "Quit", _self().quit)
-        int searchMenu = menu.addMenu("Search")
+        int64 searchMenu = menu.addMenu("Search")
         findItem = menu.addItem(searchMenu, "Find...", _self().showFind)
-        int breakpointMenu = menu.addMenu("Breakpoint")
+        int64 breakpointMenu = menu.addMenu("Breakpoint")
         toggleBreakItem = menu.addItem(breakpointMenu, "Set/Clear Breakpoint", _self().toggleBreakpoint)
         toggleEnableItem = menu.addItem(breakpointMenu, "Enable/Disable Breakpoint", _self().toggleEnabled)
-        int debugMenu = menu.addMenu("Debug")
+        int64 debugMenu = menu.addMenu("Debug")
         setupItem = menu.addItem(debugMenu, "Setup...", _self().showSetup)
         window.bindShortcut("<Control>q", _self().quit)
         window.bindShortcut("<Control>f", _self().showFind)
@@ -347,7 +347,7 @@ class Cdbg {
         controls()
         window.present()
         if (System.Process().argc() > 1) {
-            int i = 2
+            int64 i = 2
             if (System.Process().arg(i).equals("--")) { i = i + 1 }
             while (i < System.Process().argc()) {
                 cliArguments.append(System.Process().arg(i))
@@ -360,7 +360,7 @@ class Cdbg {
     String initialPath() {
         if (!targetPath.equals("")) { return System.FileSystem().absolutePath(targetPath) }
         if (source != null) {
-            int i = 0
+            int64 i = 0
             while (i < sourceFiles.length) {
                 DebugSource file = sourceFiles[i] as DebugSource
                 if (file.view == source && !file.path.equals("")) { return file.path }
@@ -460,33 +460,33 @@ class Cdbg {
             findStatus.setText("No source file is open")
             return
         }
-        int before = source.line()
-        int options = 0
+        int64 before = source.line()
+        int64 options = 0
         if (backward) { options = GtkSource.View.BACKWARD }
         if (!source.findWith(query, options)) {
             findStatus.setText(format("Not found: {}", query))
             return
         }
-        int after = source.line()
+        int64 after = source.line()
         if ((!backward && after < before) || (backward && after > before)) {
             findStatus.setText(format("Wrapped: {} at line {}", query, after))
         } else { findStatus.setText(format("Found: {} at line {}", query, after)) }
     }
     DebugSource currentSource() {
-        int page = sourceTabs.currentPage()
+        int64 page = sourceTabs.currentPage()
         if (page < 0 || page >= sourceFiles.length) { return null }
         DebugSource file = sourceFiles[page] as DebugSource
         if (file.path.equals("")) { return null }
         return file
     }
     void sourceChanged() {
-        int page = sourceTabs.currentPage()
+        int64 page = sourceTabs.currentPage()
         if (page >= 0 && page < sourceFiles.length) {
             source = (sourceFiles[page] as DebugSource).view
         }
         controls()
     }
-    void sourceLineClicked(int line) { controls() }
+    void sourceLineClicked(int64 line) { controls() }
     void controls() {
         if (window == null || window.disposed()) { return }
         bool ready = loaded && !running && !executing && active == null && requests.length == 0
@@ -508,13 +508,13 @@ class Cdbg {
             format("{}: {}", statePath, text))
         log(format("{}\n", message))
     }
-    int stateNumber(String key, int fallback, int minimum, int maximum) {
+    int64 stateNumber(String key, int64 fallback, int64 minimum, int64 maximum) {
         String raw = Gtk.Config().value(stateText, "", key)
         if (!raw.startsWith("i") || raw.length > 8 || !identifier(raw.slice(1, raw.length))) {
             if (!raw.equals("")) { stateDiagnostic(format("Invalid {}; using default", key)) }
             return fallback
         }
-        int value = raw.slice(1, raw.length).toInt()
+        int64 value = raw.slice(1, raw.length).toInt64()
         if (value < minimum) { return minimum }
         if (value > maximum) { return maximum }
         return value
@@ -563,7 +563,7 @@ class Cdbg {
             stateDiagnostic(format("{}; using defaults and leaving file unchanged", error.message))
             return
         }
-        int width = stateNumber("width", 1100, 640, 3840)
+        int64 width = stateNumber("width", 1100, 640, 3840)
         window.setDefaultSize(width, stateNumber("height", 760, 400, 2160))
         body.setPosition(stateNumber("pane", 600, 100, width - 100))
         inspection.setCurrentPage(stateNumber("inspector", 0, 0, 6))
@@ -631,12 +631,12 @@ class Cdbg {
             }
             updates.append("points = [\n")
             list locations = []
-            int i = 0
+            int64 i = 0
             while (i < breakpointLocations.length && locations.length < 256) {
                 DebugBreakpoint point = breakpointLocations[i] as DebugBreakpoint
                 String key = format("{}:{}", point.path, point.line)
                 bool duplicate = false
-                int j = 0
+                int64 j = 0
                 while (j < locations.length) {
                     if ((locations[j] as String).equals(key)) { duplicate = true }
                     j = j + 1
@@ -644,7 +644,7 @@ class Cdbg {
                 if (!duplicate && !point.path.equals("") && identifier(point.line)) {
                     locations.append(key)
                     bool enabled = point.enabled
-                    int k = 0
+                    int64 k = 0
                     while (k < breakpointLocations.length) {
                         DebugBreakpoint other = breakpointLocations[k] as DebugBreakpoint
                         if (other.path.equals(point.path) && other.line.equals(point.line) && other.enabled) {
@@ -683,18 +683,18 @@ class Cdbg {
         restoringBreakpoints = true
         restorePending = 0
         String kind = Gtk.Config().value(stateText, stateTarget, "points")
-        int count = Gtk.Config().arraySize(stateText, stateTarget, "points")
+        int64 count = Gtk.Config().arraySize(stateText, stateTarget, "points")
         if (count > 256) { stateDiagnostic("Saved breakpoint limit exceeded; restoring first 256 entries") }
         if (!kind.equals("") && count < 0) {
             stateDiagnostic("Saved breakpoints must be an array; skipped")
         } else {
-            int i = 0
+            int64 i = 0
             while (i < count && i < 256) {
                 String file = Gtk.Config().item(stateText, stateTarget, "points", i, "file")
                 String line = Gtk.Config().item(stateText, stateTarget, "points", i, "line")
                 String enabled = Gtk.Config().item(stateText, stateTarget, "points", i, "enabled")
                 if (!file.startsWith("s") || !line.startsWith("i") || line.length > 8 ||
-                    !identifier(line.slice(1, line.length)) || line.slice(1, line.length).toInt() < 1 ||
+                    !identifier(line.slice(1, line.length)) || line.slice(1, line.length).toInt64() < 1 ||
                     (!enabled.equals("btrue") && !enabled.equals("bfalse"))) {
                     stateDiagnostic(format("Invalid saved breakpoint {}; skipped", i + 1))
                 } else {
@@ -719,7 +719,7 @@ class Cdbg {
     String outputHistory(String previous, String text) {
         previous.append(text)
         if (previous.length <= 65536) { return previous }
-        int first = previous.length - 65536
+        int64 first = previous.length - 65536
         while (first < previous.length && previous.byteAt(first) >= 128u &&
             previous.byteAt(first) <= 191u) { first = first + 1 }
         return previous.slice(first, previous.length)
@@ -772,7 +772,7 @@ class Cdbg {
     void clearSources() {
         sourceMessage("Loading source...")
         list kept = []
-        int i = 0
+        int64 i = 0
         while (i < sourceFiles.length) {
             DebugSource file = sourceFiles[i] as DebugSource
             if (file.path.equals("")) { kept.append(file) }
@@ -787,7 +787,7 @@ class Cdbg {
         source = (sourceFiles[0] as DebugSource).view
     }
     void sourceMessage(String text) {
-        int i = 0
+        int64 i = 0
         while (i < sourceFiles.length) {
             DebugSource document = sourceFiles[i] as DebugSource
             if (document.path.equals("")) {
@@ -807,7 +807,7 @@ class Cdbg {
     }
     void removeSourcePage(DebugSource file) {
         list remaining = []
-        int i = 0
+        int64 i = 0
         while (i < sourceFiles.length) {
             DebugSource item = sourceFiles[i] as DebugSource
             if (item != file) { remaining.append(item) }
@@ -820,7 +820,7 @@ class Cdbg {
     }
     void removeMessagePage() {
         if (sourceFiles.length < 2) { return }
-        int i = 0
+        int64 i = 0
         while (i < sourceFiles.length) {
             DebugSource file = sourceFiles[i] as DebugSource
             if (file.path.equals("")) {
@@ -834,7 +834,7 @@ class Cdbg {
     // file reopens it.
     void closeSource(DebugSource file) {
         bool open = false
-        int i = 0
+        int64 i = 0
         while (i < sourceFiles.length) {
             if ((sourceFiles[i] as DebugSource) == file) { open = true }
             i = i + 1
@@ -853,7 +853,7 @@ class Cdbg {
         String own = System.Process().arg(0)
         if (!own.contains("/")) {
             list paths = System.Process().getEnv("PATH").split(":")
-            int i = 0
+            int64 i = 0
             while (i < paths.length) {
                 String candidate = System.FileSystem().join(paths[i] as String, own)
                 if (System.FileSystem().isFile(candidate)) { own = candidate
@@ -1020,7 +1020,7 @@ class Cdbg {
         enqueue(format("-inferior-tty-set {}", MiParser().quote(terminal.path())), "setup", "")
         enqueue(format("-file-exec-and-symbols {}", MiParser().quote(executable)), "target", "")
         String args = "-exec-arguments"
-        int i = 0
+        int64 i = 0
         while (i < arguments.length) {
             args.append(format(" {}", MiParser().quote(arguments[i] as String)))
             i = i + 1
@@ -1081,7 +1081,7 @@ class Cdbg {
     // it stops on the `start {` line; native programs stop in main().
     void startRun() {
         String args = "-exec-arguments"
-        int i = 0
+        int64 i = 0
         while (i < arguments.length) {
             args.append(format(" {}", MiParser().quote(arguments[i] as String)))
             i = i + 1
@@ -1129,7 +1129,7 @@ class Cdbg {
         }
         bool restoreFrame = selectedFrame != 0
         list kept = []
-        int i = 0
+        int64 i = 0
         while (i < requests.length) {
             DebugRequest request = requests[i] as DebugRequest
             if (request.purpose.equals("frame")) { restoreFrame = true }
@@ -1157,9 +1157,9 @@ class Cdbg {
     }
     bool identifier(String text) {
         if (text.equals("")) { return false }
-        int i = 0
+        int64 i = 0
         while (i < text.length) {
-            if (int(text.byteAt(i)) < 48 || int(text.byteAt(i)) > 57) { return false }
+            if (int64(text.byteAt(i)) < 48 || int64(text.byteAt(i)) > 57) { return false }
             i = i + 1
         }
         return true
@@ -1181,12 +1181,12 @@ class Cdbg {
     }
     list lineBreakpoints(DebugSource file) {
         list ids = []
-        int i = 0
+        int64 i = 0
         while (i < breakpointLocations.length) {
             DebugBreakpoint item = breakpointLocations[i] as DebugBreakpoint
             if (sameSource(item.path, file.path) && item.line.equals(format("{}", file.view.line()))) {
                 bool duplicate = false
-                int j = 0
+                int64 j = 0
                 while (j < ids.length) {
                     if ((ids[j] as String).equals(item.number)) { duplicate = true }
                     j = j + 1
@@ -1201,7 +1201,7 @@ class Cdbg {
             if (entry.field("original-location").text.equals(format("{}:{}", file.path, file.view.line()))) {
                 String number = entry.field("number").text.split(".")[0] as String
                 bool duplicate = false
-                int j = 0
+                int64 j = 0
                 while (j < ids.length) {
                     if ((ids[j] as String).equals(number)) { duplicate = true }
                     j = j + 1
@@ -1212,7 +1212,7 @@ class Cdbg {
         }
         return ids
     }
-    void breakpointClicked(int line) {}
+    void breakpointClicked(int64 line) {}
     bool breakpointReady() {
         if (!loaded || running || active != null || requests.length > 0 || currentSource() == null) {
             status.setText("Load a target, pause it, and select a source file before changing breakpoints")
@@ -1226,7 +1226,7 @@ class Cdbg {
         list ids = lineBreakpoints(file)
         if (ids.length == 0) { addBreakpoint(format("{}:{}", file.path, file.view.line()))
             return }
-        int i = 0
+        int64 i = 0
         while (i < ids.length) { deleteBreakpoint(ids[i] as String)
             i = i + 1 }
     }
@@ -1236,10 +1236,10 @@ class Cdbg {
         if (ids.length == 0) { status.setText("No breakpoint at the current source line")
             return }
         bool enabled = false
-        int i = 0
+        int64 i = 0
         while (i < breakpointLocations.length) {
             DebugBreakpoint point = breakpointLocations[i] as DebugBreakpoint
-            int j = 0
+            int64 j = 0
             while (j < ids.length) {
                 if (point.number.equals(ids[j] as String) && point.enabled) { enabled = true }
                 j = j + 1
@@ -1256,7 +1256,7 @@ class Cdbg {
     }
     void requestBreakpoints() {
         if (active != null && active.purpose.equals("breaks")) { return }
-        int i = 0
+        int64 i = 0
         while (i < requests.length) {
             if ((requests[i] as DebugRequest).purpose.equals("breaks")) { return }
             i = i + 1
@@ -1270,18 +1270,18 @@ class Cdbg {
     }
     void syncBreakpointMarks() {
         if (window == null || window.disposed()) { return }
-        int i = 0
+        int64 i = 0
         while (i < sourceFiles.length) {
             DebugSource file = sourceFiles[i] as DebugSource
             file.view.clearLineMarks("breakpoint")
             file.view.clearLineMarks("disabled-breakpoint")
-            int j = 0
+            int64 j = 0
             while (j < breakpointLocations.length) {
                 DebugBreakpoint point = breakpointLocations[j] as DebugBreakpoint
-                if (sameSource(point.path, file.path) && identifier(point.line) && point.line.toInt() > 0) {
+                if (sameSource(point.path, file.path) && identifier(point.line) && point.line.toInt64() > 0) {
                     String category = "disabled-breakpoint"
                     if (point.enabled) { category = "breakpoint" }
-                    file.view.addLineMark(category, point.line.toInt())
+                    file.view.addLineMark(category, point.line.toInt64())
                 }
                 j = j + 1
             }
@@ -1299,7 +1299,7 @@ class Cdbg {
             breakpointLocations.append(DebugBreakpoint(parent, path, line, enabled))
         }
         MiValue locations = item.field("locations")
-        int i = 0
+        int64 i = 0
         while (i < locations.values.length) {
             breakpointLocation(locations.values[i] as MiValue, parent, enabled)
             i = i + 1
@@ -1323,15 +1323,15 @@ class Cdbg {
         return text
     }
     // Lists enabled breakpoints whose hit count did not change during the run.
-    int reportUnreached() {
-        int count = 0
-        int i = 0
+    int64 reportUnreached() {
+        int64 count = 0
+        int64 i = 0
         while (i < breakpointEntries.length) {
             MiValue entry = breakpointEntries[i] as MiValue
             String number = entry.field("number").text
             String key = format("{}={}", number, entry.field("times").text)
             bool same = false
-            int j = 0
+            int64 j = 0
             while (j < runHits.length) {
                 if ((runHits[j] as String).equals(key)) { same = true }
                 j = j + 1
@@ -1436,7 +1436,7 @@ class Cdbg {
             watchStatus.setText("Enter a watch expression (maximum 4096 bytes, 64 watches)")
             fail("Enter a watch expression (maximum 4096 bytes, 64 watches)")
             return false }
-        int i = 0
+        int64 i = 0
         while (i < expressions.length) {
             if ((expressions[i] as String).equals(expression)) { return true }
             i = i + 1
@@ -1446,8 +1446,8 @@ class Cdbg {
         else { watches.setText("Watches will be evaluated at the next stop") }
         return true
     }
-    void stackClicked(int line) {
-        int row = line - 1
+    void stackClicked(int64 line) {
+        int64 row = line - 1
         if (row < 0 || row >= stackFrames.length) { return }
         MiValue frame = stackFrames[row] as MiValue
         selectFrame(frame.field("level").text)
@@ -1467,7 +1467,7 @@ class Cdbg {
     void refresh() {
         if (!loaded || running || !hasRun || executing) { return }
         list pendingRequests = []
-        int requestIndex = 0
+        int64 requestIndex = 0
         while (requestIndex < requests.length) {
             DebugRequest request = requests[requestIndex] as DebugRequest
             if (!inspection(request)) { pendingRequests.append(request) }
@@ -1483,7 +1483,7 @@ class Cdbg {
         if (valueInspector) { enqueue("-cdbg-inspect locals", "locals", "") }
         else { enqueue("-stack-list-variables --all-values", "locals", "") }
         enqueue("-stack-list-frames 0 30", "stack", "")
-        int i = 0
+        int64 i = 0
         while (i < expressions.length) {
             String expression = expressions[i] as String
             if (valueInspector) {
@@ -1551,16 +1551,16 @@ class Cdbg {
     bool showSource(String path, String line) {
         String absolute = System.FileSystem().absolutePath(path)
         if (!absolute.equals("")) { path = absolute }
-        int i = 0
+        int64 i = 0
         while (i < sourceFiles.length) {
             DebugSource file = sourceFiles[i] as DebugSource
             if (file.path.equals(path)) {
                 bool switched = sourceTabs.currentPage() != i
                 source = file.view
                 sourceTabs.setCurrentPage(i)
-                if (identifier(line) && line.toInt() > 0 &&
-                    (switched || source.line() != line.toInt() || file.centeredStop != stopCount)) {
-                    source.centerCursor(line.toInt(), 1)
+                if (identifier(line) && line.toInt64() > 0 &&
+                    (switched || source.line() != line.toInt64() || file.centeredStop != stopCount)) {
+                    source.centerCursor(line.toInt64(), 1)
                     file.centeredStop = stopCount
                 }
                 removeMessagePage()
@@ -1584,8 +1584,8 @@ class Cdbg {
         sourceTabs.appendClosablePage(container, System.FileSystem().basename(path), document.close)
         removeMessagePage()
         sourceTabs.setCurrentPage(sourceFiles.length - 1)
-        if (identifier(line) && line.toInt() > 0) {
-            source.centerCursor(line.toInt(), 1)
+        if (identifier(line) && line.toInt64() > 0) {
+            source.centerCursor(line.toInt64(), 1)
             document.centeredStop = stopCount
         }
         return true
@@ -1676,7 +1676,7 @@ class Cdbg {
         if (done.purpose.equals("sources")) {
             MiValue files = record.data.field("files")
             bool cwhipSources = false
-            int i = 0
+            int64 i = 0
             while (i < files.values.length) {
                 MiValue file = files.values[i] as MiValue
                 if (file.field("file").text.endsWith(".cw")) { cwhipSources = true }
@@ -1725,7 +1725,7 @@ class Cdbg {
             MiValue variables = record.data.field("variables")
             String text = ""
             runtimeLocals = ""
-            int i = 0
+            int64 i = 0
             while (i < variables.values.length) {
                 MiValue variable = variables.values[i] as MiValue
                 String value = variable.field("friendly").text
@@ -1749,7 +1749,7 @@ class Cdbg {
             MiValue frames = record.data.field("stack")
             stackFrames = frames.values
             String text = ""
-            int i = 0
+            int64 i = 0
             while (i < frames.values.length) {
                 MiValue frame = frames.values[i] as MiValue
                 text.append(format("#{} {} {}:{}\n", frame.field("level").text, frame.field("func").text,
@@ -1768,7 +1768,7 @@ class Cdbg {
             showLocation(record.data.field("frame"))
         }
         if (done.purpose.equals("frame")) {
-            selectedFrame = done.expression.toInt()
+            selectedFrame = done.expression.toInt64()
             refresh()
         }
         if (done.purpose.equals("breaks")) {
@@ -1778,7 +1778,7 @@ class Cdbg {
             breakpointLocations = []
             String text = ""
             bool startSeen = false
-            int i = 0
+            int64 i = 0
             while (i < rows.values.length) {
                 MiValue item = rows.values[i] as MiValue
                 String number = item.field("number").text
@@ -1786,7 +1786,7 @@ class Cdbg {
                 bool enabled = !item.field("enabled").text.equals("n")
                 if (number.contains(".")) {
                     String parent = number.split(".")[0] as String
-                    int j = 0
+                    int64 j = 0
                     while (j < rows.values.length) {
                         MiValue root = rows.values[j] as MiValue
                         if (root.field("number").text.equals(parent) && root.field("enabled").text.equals("n")) {
@@ -1859,7 +1859,7 @@ class Cdbg {
                 if (!parsed.data.field("exit-code").text.equals("")) {
                     exitText.append(format(" {}", parsed.data.field("exit-code").text))
                 }
-                int missed = reportUnreached()
+                int64 missed = reportUnreached()
                 if (missed > 0) { exitText.append(format("; {} breakpoint(s) not reached", missed)) }
                 startBreakpoint = ""
                 startNumber = ""
@@ -1905,7 +1905,7 @@ class Cdbg {
             endSession()
             return
         }
-        int newline = pending.find("\n")
+        int64 newline = pending.find("\n")
         while (newline >= 0) {
             String line = pending.slice(0, newline)
             pending = pending.slice(newline + 1, pending.length)
@@ -1928,7 +1928,7 @@ class Cdbg {
             return
         }
         Process.ProcessEvent event = process.next(10)
-        int count = 0
+        int64 count = 0
         while (event != null && count < 64) {
             if (event.isStdout()) {
                 String text = output.decode(event.data())
