@@ -24,9 +24,12 @@ start {
     uint64 u64 = 18446744073709551615u
     fp32 f32 = 0.1
     fp64 f64 = 0.1f64
-    list small = [s8, u8, s16, u16, s32, u32, f32]
+    int nativeInt = 21
+    uint nativeUint = 42u
+    float nativeFloat = 0.25
+    list small = [s8, u8, s16, u16, s32, u32, f32, nativeInt, nativeUint, nativeFloat]
     list wide = [s64, u64, f64]
-    dict smallMap = {"s8": s8, "u8": u8, "s16": s16, "u16": u16, "s32": s32, "u32": u32, "f32": f32}
+    dict smallMap = {"s8": s8, "u8": u8, "s16": s16, "u16": u16, "s32": s32, "u32": u32, "f32": f32, "nativeInt": nativeInt, "nativeUint": nativeUint, "nativeFloat": nativeFloat}
     dict wideMap = {"s64": s64, "u64": u64, "f64": f64}
     fp32 negativeZero = -0.0
     fp32 infinity = fp32(1.0) / fp32(0.0)
@@ -68,6 +71,8 @@ expected = {
     "s64": ("int64", "-9223372036854775808"),
     "u64": ("uint64", "18446744073709551615"),
     "f32": ("fp32", "0.10000000149011612"), "f64": ("fp64", "0.1"),
+    "nativeInt": ("int32", "21"), "nativeUint": ("uint32", "42"),
+    "nativeFloat": ("fp32", "0.25"),
 }
 rows = {row["name"]: row for row in scope["Inspector"]().invoke(["locals"])["variables"]}
 box = gdb.lookup_type("CwhipArrayValue")
@@ -83,8 +88,9 @@ for name, (typ, text) in expected.items():
         assert float(friendly(value, True)) == float(text), (name, friendly(value, True))
     else:
         assert friendly(value, True) == text, (name, friendly(value, True))
-groups = [("small", "smallMap", ["s8", "u8", "s16", "u16", "s32", "u32", "f32"],
-           [12, 13, 14, 15, 16, 17, 18]),
+groups = [("small", "smallMap", ["s8", "u8", "s16", "u16", "s32", "u32", "f32",
+                                  "nativeInt", "nativeUint", "nativeFloat"],
+           [12, 13, 14, 15, 16, 17, 18, 16, 17, 18]),
           ("wide", "wideMap", ["s64", "u64", "f64"], [1, 8, 7])]
 for array, mapping, names, tags in groups:
     values = scope["runtime_object"](gdb.parse_and_eval(array), "CwhipArray")["values"]
@@ -97,7 +103,8 @@ for array, mapping, names, tags in groups:
         assert dynamic(values[index], 0) == text, (name, dynamic(values[index], 0))
         assert int(entries[index]["value"]["tag"]) == tag, (name, entries[index])
         assert dynamic(entries[index]["value"], 0) == text, name
-        assert text in shown_list and ('"' + name + '": ' + text) in shown_map
+        if index < 8:
+            assert text in shown_list and ('"' + name + '": ' + text) in shown_map
 special = scope["runtime_object"](gdb.parse_and_eval("special"), "CwhipArray")["values"]
 assert dynamic(special[0], 0) == "-0.0"
 assert dynamic(special[1], 0) == "inf"
