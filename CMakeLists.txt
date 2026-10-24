@@ -48,11 +48,17 @@ if(NOT cwhip_sdk_prefix STREQUAL "")
     unset(Cwhip_DIR)
     find_package(Cwhip 0.0.2 EXACT CONFIG REQUIRED
         PATHS "${cwhip_sdk_prefix}" NO_DEFAULT_PATH)
-    cwhip_apply_application_defaults()
 else()
     find_package(Cwhip 0.0.2 EXACT CONFIG REQUIRED)
-    cwhip_apply_application_defaults()
 endif()
+if(NOT COMMAND cwhip_apply_application_defaults)
+    message(FATAL_ERROR
+        "Selected Cwhip SDK '${Cwhip_PREFIX}' lacks application-defaults support "
+        "(cwhip_apply_application_defaults). Rebuild and reinstall an updated "
+        "Cwhip SDK with application-defaults support to this prefix, or select "
+        "an updated SDK via CWHIP_SDK, then rerun configuration.")
+endif()
+cwhip_apply_application_defaults()
 
 if(NOT Cwhip_SDK_ABI STREQUAL "numeric-v2")
     message(FATAL_ERROR "cdbg requires the Cwhip numeric-v2 SDK ABI; rebuild the SDK and native modules")

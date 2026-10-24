@@ -52,6 +52,7 @@ class SdkDiscoveryTest(unittest.TestCase):
         package.mkdir(parents=True)
         (package / "CwhipConfig.cmake").write_text(
             'get_filename_component(prefix "${CMAKE_CURRENT_LIST_DIR}/../../.." ABSOLUTE)\n'
+            'set(Cwhip_PREFIX "${prefix}")\n'
             'file(WRITE "${CMAKE_BINARY_DIR}/selected-sdk.txt" "${prefix}")\n'
             'include("${CMAKE_CURRENT_LIST_DIR}/CwhipApplicationDefaults.cmake")\n'
             'set(Cwhip_APPLICATION_OUTPUT_DIRECTORIES TRUE)\n'
@@ -198,6 +199,31 @@ class SdkDiscoveryTest(unittest.TestCase):
             (self.build / "sourceview-args.txt").read_text(),
             f"RESOURCE_DIRECTORY;{self.project}/share/cwhip/modules/sourceview/0.1.0/language-specs",
         )
+
+    def test_legacy_sdk_without_application_defaults_reports_upgrade(self):
+        package = self.fallback / "lib/cmake/Cwhip"
+        config = package / "CwhipConfig.cmake"
+        config.write_text(config.read_text().replace(
+            'include("${CMAKE_CURRENT_LIST_DIR}/CwhipApplicationDefaults.cmake")\n', "",
+        ))
+        (package / "CwhipApplicationDefaults.cmake").unlink()
+        for selection in ("normal", "settings", "environment"):
+            if selection == "settings":
+                self.select(self.fallback)
+            elif selection == "environment":
+                self.env["CWHIP_SDK"] = str(self.fallback)
+            for setup in (False, True):
+                with self.subTest(selection=selection, setup=setup):
+                    output = self.configure(setup=setup, success=False)
+                    self.assertIn(str(self.fallback), output)
+                    diagnostic = " ".join(output.split())
+                    self.assertIn("lacks application-defaults support", diagnostic)
+                    self.assertIn("Rebuild and reinstall", diagnostic)
+                    self.assertIn("CWHIP_SDK", output)
+                    self.assertNotIn("Unknown CMake command", output)
+                    self.assertFalse(
+                        (self.build / "application-defaults-called.txt").exists())
+                    self.assertFalse((self.build / "sourceview-args.txt").exists())
 
     def test_missing_top_level_key_in_sdk_ignores_legacy_and_preserves_cmake_dir(self):
         self.select_legacy(self.make_sdk("legacy-sdk"))

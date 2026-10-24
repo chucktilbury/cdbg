@@ -7,7 +7,8 @@ and does not read from or build a compiler workspace checkout.
 
 - CMake 3.24 or newer, a C compiler, Python 3.11 or newer and `pkg-config`
 - An installed Cwhip SDK version `0.0.2`, ABI `numeric-v2`, with GTK,
-  GtkSourceView and application output-directory support enabled
+  GtkSourceView, application output-directory and application-defaults support
+  enabled
 - GTK 4.10 or newer and GtkSourceView 5 development files
 - For the GUI/GDB integration tests: GDB, Xvfb and `dbus-daemon`
 
@@ -55,6 +56,16 @@ decoding (including signed zero, infinity, NaN and a subnormal), locals,
 watches, source breakpoints, Step Into/Over/Out and frame selection through
 real GDB/MI and the GTK debugger. It retains `numeric-values.mi` and
 `numeric-stepping.mi` in the test work directory for diagnosis.
+
+The selected installed SDK must provide `cwhip_apply_application_defaults`
+through its CMake package. An SDK installation that satisfies the version and
+ABI checks can still lack this capability if it predates application-defaults
+support. If configuration reports missing application-defaults support, rebuild
+and reinstall an updated Cwhip SDK to
+the prefix named in the error, or select an updated installation with
+`CWHIP_SDK`, then rerun setup/configuration. Updating the compiler source alone
+does not update an existing installed SDK. cdbg does not skip shared defaults
+when this capability is missing.
 
 ## Configure and build
 
