@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Make old-SDK rejection tests explicitly select the incompatible prefix through
+  settings and environment overrides, even with a compatible SDK discoverable
+  through PATH or CMake. Normal discovery may legitimately skip an old SDK.
+  Accept CMake's line wrapping in path diagnostics under long, nested test roots.
 - Migrate to Cwhip SDK `0.0.2` / `numeric-v2`, explicitly rejecting missing or
   incompatible SDK ABI identifiers. Update application/example/test Cwhip
   sources and numeric string parsers while retaining exact dynamic extraction.

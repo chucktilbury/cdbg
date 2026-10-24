@@ -122,8 +122,26 @@ class SdkDiscoveryTest(unittest.TestCase):
 
     def test_reject_old_sdk_version(self):
         version = self.fallback / "lib/cmake/Cwhip/CwhipConfigVersion.cmake"
-        version.write_text(version.read_text().replace('"0.0.2"', '"0.0.1"'))
-        self.assertIn("0.0.2", self.configure(success=False))
+        original = version.read_text()
+        self.assertIn('set(PACKAGE_VERSION "0.0.2")', original)
+        version.write_text(original.replace('"0.0.2"', '"0.0.1"'))
+        self.assertIn('set(PACKAGE_VERSION "0.0.1")', version.read_text())
+        compatible = self.make_sdk("compatible")
+        self.env["CMAKE_PREFIX_PATH"] = str(compatible)
+        compatible_bin = compatible / "bin"
+        compatible_bin.mkdir()
+        self.env["PATH"] = f"{compatible_bin}{os.pathsep}{self.env['PATH']}"
+        for selection in ("settings", "environment"):
+            with self.subTest(selection=selection):
+                if selection == "settings":
+                    self.select(self.fallback)
+                else:
+                    self.sdk_settings.unlink()
+                    self.env["CWHIP_SDK"] = str(self.fallback)
+                output = self.configure(success=False)
+                self.assertIn("0.0.2", output)
+                self.assertIn(str(self.fallback), output)
+                self.assertFalse((self.build / "selected-sdk.txt").exists(), output)
 
     def test_reject_incompatible_abi(self):
         config = self.fallback / "lib/cmake/Cwhip/CwhipConfig.cmake"
@@ -215,8 +233,8 @@ class SdkDiscoveryTest(unittest.TestCase):
             for setup in (False, True):
                 with self.subTest(selection=selection, setup=setup):
                     output = self.configure(setup=setup, success=False)
-                    self.assertIn(str(self.fallback), output)
                     diagnostic = " ".join(output.split())
+                    self.assertIn(" ".join(str(self.fallback).split()), diagnostic)
                     self.assertIn("lacks application-defaults support", diagnostic)
                     self.assertIn("Rebuild and reinstall", diagnostic)
                     self.assertIn("CWHIP_SDK", output)
