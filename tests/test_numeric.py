@@ -33,6 +33,16 @@ start {
     fp32 nanValue = fp32(0.0) / fp32(0.0)
     fp32 subnormal = 1e-45
     list special = [negativeZero, infinity, nanValue, subnormal]
+    range<int8> narrow = int8(-128)..int8(127)
+    range<int64> signedBounds = int64(-9223372036854775808)..int64(9223372036854775807)
+    range<uint64> unsignedBounds = uint64(0u)..uint64(18446744073709551615u)
+    range<int64> descending = int64(3)..int64(1)
+    range<int64> missingRange = null
+    list boxedRanges = [narrow, signedBounds, unsignedBounds, descending, missingRange]
+    dict rangeMap = {"signed": signedBounds, "unsigned": unsignedBounds, "descending": descending, "missing": missingRange}
+    for (iterator in descending) {
+        bool iteratorMarker = iterator == 3
+    }
     bool exact = (small[0] is int8 && !(small[0] is int64) &&
         small[6] is fp32 && !(small[6] is fp64) && wide[2] is fp64)
     int64 extracted = int64(small[0] as int8)
@@ -93,12 +103,46 @@ assert dynamic(special[0], 0) == "-0.0"
 assert dynamic(special[1], 0) == "inf"
 assert math.isnan(float(dynamic(special[2], 0)))
 assert float(dynamic(special[3], 0)) == 2**-149
+range_expected = {
+    "narrow": "range<int8>(-128..127)",
+    "signedBounds": "range<int64>(-9223372036854775808..9223372036854775807)",
+    "unsignedBounds": "range<uint64>(0..18446744073709551615)",
+    "descending": "range<int64>(3..1)",
+    "missingRange": "null",
+}
+for name, text in range_expected.items():
+    value = gdb.parse_and_eval(name)
+    assert friendly(value, True) == text, (name, friendly(value, True))
+    assert scope["Inspector"]().invoke(["watch", name])["friendly"] == text
+boxed = scope["runtime_object"](gdb.parse_and_eval("boxedRanges"), "CwhipArray")["values"]
+assert [int(boxed[i]["tag"]) for i in range(5)] == [19, 19, 19, 19, 3], [
+    int(boxed[i]["tag"]) for i in range(5)]
+assert [dynamic(boxed[i], 0) for i in range(5)] == list(range_expected.values()), [
+    dynamic(boxed[i], 0) for i in range(5)]
+mapping = scope["runtime_object"](gdb.parse_and_eval("rangeMap"), "CwhipMap")["entries"]
+assert [dynamic(mapping[i]["value"], 0) for i in range(4)] == [
+    range_expected["signedBounds"], range_expected["unsignedBounds"],
+    range_expected["descending"], range_expected["missingRange"]], [
+        dynamic(mapping[i]["value"], 0) for i in range(4)]
+iterator = gdb.parse_and_eval("iterator")
+assert friendly(iterator, True) == "3", friendly(iterator, True)
+assert rows["iterator"]["friendly"] == "3", rows.get("iterator")
+iterator_watch = scope["Inspector"]().invoke(["watch", "iterator"])
+assert iterator_watch["friendly"] == "3", iterator_watch
+for expression in ("boxedRanges", "rangeMap"):
+    watched = scope["Inspector"]().invoke(["watch", expression])["friendly"]
+    expected_values = range_expected.values() if expression == "boxedRanges" else [
+        range_expected[name] for name in (
+            "signedBounds", "unsignedBounds", "descending", "missingRange")]
+    assert all(text in watched for text in expected_values), watched
 # Decode the low bits, even if higher payload bits contain unrelated data.
 for tag, bits, text in [(12, 255, "-1"), (13, -1, "255"),
                         (14, 65535, "-1"), (15, -1, "65535"),
                         (16, 4294967295, "-1"), (17, -1, "4294967295"),
                         (18, 0x123456783fc00000, "1.5")]:
     assert dynamic({"tag": tag, "integer": bits}, 0) == text
+gdb.execute("disable 1")
+gdb.execute("continue")
 assert gdb.selected_frame().find_sal().symtab.filename.endswith("numeric.cw")
 gdb.execute("next")
 assert int(gdb.parse_and_eval("s64")) == -9223372036854775807
@@ -132,8 +176,11 @@ def main():
                           "\n" + CHECKS)
         line = next(i for i, text in enumerate(numeric.read_text().splitlines(), 1)
                     if text.strip() == "s64 = s64 + 1")
+        range_line = next(i for i, text in enumerate(numeric.read_text().splitlines(), 1)
+                          if text.strip() == "bool iteratorMarker = iterator == 3")
         result = invoke([args.gdb, "-q", "-nx", "--batch", str(executable),
-                         "-ex", "set pagination off", "-ex", f"break {numeric}:{line}",
+                         "-ex", "set pagination off", "-ex", f"break {numeric}:{range_line}",
+                         "-ex", f"break {numeric}:{line}",
                          "-ex", "run", "-ex", f"source {checks}", "-ex", "continue"], work, env)
         assert result.returncode == 0 and "NUMERIC_GDB_PASS" in result.stdout, result
         assert "NUMERIC_RUNTIME_PASS" in result.stdout, result
@@ -169,8 +216,12 @@ def main():
             source.write_text(contents)
             trace = args.work.resolve() / f"numeric-{mode}.mi"
             with headless(args.xvfb, case, env) as gtk_env:
+                test_line = next(
+                    (index for index, text in enumerate(contents.splitlines(), 1)
+                     if text.strip() == "counter = counter + 1"), "")
                 gtk_env.update(CDBG_TEST_MODE=mode, CDBG_TEST_TARGET=str(source),
                                CDBG_TEST_SOURCE=str(source), CDBG_TEST_WORK=str(case),
+                               CDBG_TEST_LINE=str(test_line),
                                CDBG_COMPILER=str(args.compiler), CDBG_GDB=str(proxy),
                                CDBG_REAL_GDB=args.gdb, CDBG_MI_TRACE=str(trace),
                                CDBG_RUNTIME_TEST="0")

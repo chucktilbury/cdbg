@@ -368,9 +368,12 @@ class DebugChecks {
         if (stage == 0 && ui.loaded && idle()) {
             ui.breakAtStart = false
             require(ui.valueInspector && ui.inspection.pageCount() == 7, "value inspector and Runtime Values tab")
-            ui.addBreakpoint(format("{}:19", System.Process().getEnv("CDBG_TEST_SOURCE")))
+            ui.addBreakpoint(format("{}:{}", System.Process().getEnv("CDBG_TEST_SOURCE"),
+                System.Process().getEnv("CDBG_TEST_LINE")))
             list names = ["counter", "positive", "truth", "fraction", "message", "missing",
-                "worker", "items", "mapping", "bytes", "longText", "not_in_scope",
+                "worker", "items", "mapping", "bytes", "longText", "narrow", "signedBounds",
+                "unsignedBounds", "descending", "missingRange", "boxedRanges", "rangeMap",
+                "iterator", "not_in_scope",
                 "counter = 0", "print(counter)"]
             int64 i = 0
             while (i < names.length) {
@@ -390,6 +393,18 @@ class DebugChecks {
                 text.contains("\\n") && text.contains("\\\""), format("escaped Unicode String: {}", text))
             require(text.contains("missing = null") && text.contains("members unavailable"),
                 format("null and honest class summary: {}", text))
+            require(text.contains("narrow = range<int8>(-128..127)") &&
+                text.contains("signedBounds = range<int64>(-9223372036854775808..9223372036854775807)") &&
+                text.contains("unsignedBounds = range<uint64>(0..18446744073709551615)") &&
+                text.contains("descending = range<int64>(3..1)") &&
+                text.contains("missingRange = null") && text.contains("iterator = 3"),
+                format("typed ranges, extrema, null and live range iterator: {}", text))
+            require(text.contains("range<int64>(-9223372036854775808..9223372036854775807)") &&
+                text.contains("range<uint64>(0..18446744073709551615)") &&
+                text.contains("range<int64>(3..1)") &&
+                text.contains("list[5] {range<int8>(-128..127)") &&
+                text.contains("\"missing\": null"),
+                format("boxed list/map ranges: {}", text))
             require(text.contains("items = list[9] {21, true, \"hello\", list[2] {1, list[2] <depth limit>}") &&
                 text.contains("7} … <truncated>") &&
                 text.contains("mapping = dict[1] {\"key\": 42}") &&
@@ -1376,7 +1391,17 @@ start {
     while (longText.length < 300) {
         longText.append("a")
     }
-    counter = counter + 1
+    range<int8> narrow = int8(-128)..int8(127)
+    range<int64> signedBounds = int64(-9223372036854775808)..int64(9223372036854775807)
+    range<uint64> unsignedBounds = uint64(0u)..uint64(18446744073709551615u)
+    range<int64> descending = int64(3)..int64(1)
+    range<int64> missingRange = null
+    list boxedRanges = [narrow, signedBounds, unsignedBounds, descending, missingRange]
+    dict rangeMap = {"signed": signedBounds, "unsigned": unsignedBounds, "descending": descending, "missing": missingRange}
+    for (iterator in descending) {
+        counter = counter + 1
+        break
+    }
     print(counter)
 }
 '''
@@ -1617,6 +1642,8 @@ def main() -> None:
         cw_source.write_text(CW_FIXTURE)
         values_source = work / "values.cw"
         values_source.write_text(VALUES_FIXTURE)
+        values_line = str(next(index for index, text in enumerate(
+            VALUES_FIXTURE.splitlines(), 1) if text.strip() == "counter = counter + 1"))
         values_binary = work / "values"
         result = invoke([str(args.compiler), str(values_source), "-g", "-o", str(values_binary)], work, env)
         assert result.returncode == 0, result.stderr
@@ -1625,7 +1652,7 @@ def main() -> None:
                                 "\n" + VALUE_CHECKS)
         value_result = invoke([args.gdb, "-q", "-nx", "--batch", str(values_binary),
                                "-ex", "set host-charset UTF-8",
-                               "-ex", f"break {values_source}:19", "-ex", "run",
+                               "-ex", f"break {values_source}:{values_line}", "-ex", "run",
                                "-ex", f"source {value_checks}"], work, env)
         assert value_result.returncode == 0 and "VALUE_CHECKS_PASS" in value_result.stdout, value_result
         optimized_source = work / "optimized.c"
@@ -1687,7 +1714,7 @@ def main() -> None:
         # Legacy modes share one local settings file, without Break at start.
         (work / ".cdbg.toml").write_text("version = 1\nbreak_at_start = false\n")
         for mode, target, debug_source, line in (
-            ("values", values_source, values_source, "19"),
+            ("values", values_source, values_source, values_line),
             ("native", c_binary, c_source, "7"),
             ("cwhip", cw_source, cw_source, "10"),
             ("relative-cwhip", Path(cw_source.name), cw_source, "10"),
