@@ -19,6 +19,19 @@ Runtime object inspection also needs the SDK runtime's type debug information;
 the SDK retains it for GNU/Clang builds, including Release. Stripping it from
 the runtime archive disables those inspection capabilities.
 
+### Syntax cleanup
+
+The application, example and embedded test programs require an SDK containing
+[chucktilbury/cwhip#37](https://github.com/chucktilbury/cwhip/pull/37).
+Value returns use `return(expr)` and dictionary literals use `[key: value]`
+(`[:]` for an empty dictionary); lists still use `[]`. Use `#`, `//` or
+`/* ... */` for Cwhip comments, not `;`. Native C code is unchanged.
+The source audit found no mixed bitwise/comparison expressions requiring
+parentheses to preserve their original grouping.
+
+Use a fresh build directory when changing SDKs so package lock files are
+regenerated for the selected SDK.
+
 ### Numeric-v2 migration
 
 This version depends on the compiler numeric migration in

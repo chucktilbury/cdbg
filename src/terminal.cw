@@ -24,18 +24,18 @@ class DebugTerminal {
     }
 
     String path() {
-        return _nativePath(_native)
+        return(_nativePath(_native))
     }
 
     String read() {
         if (_native != null && !_closed) {
-            return _decoder.decode(_nativeRead(_native))
+            return(_decoder.decode(_nativeRead(_native)))
         }
         if (!_finished) {
             _finished = true
-            return _decoder.finish()
+            return(_decoder.finish())
         }
-        return ""
+        return("")
     }
 
     void close() {
@@ -48,7 +48,7 @@ class DebugTerminal {
     }
 
     String error() {
-        return _nativeError(_native)
+        return(_nativeError(_native))
     }
 
     destroy {
