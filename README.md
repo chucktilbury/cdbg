@@ -29,7 +29,9 @@ The SDK must include application output-directory and application-defaults
 support. Older SDK installations must be rebuilt and reinstalled from updated
 Cwhip sources; updating the compiler checkout alone is not enough. Setup configures
 before opening a fresh Bash shell, sources your existing `~/.bashrc`, and adds
-the project's `bin/` and `scripts/` to PATH. It never downloads dependencies,
+the project's `bin/` and `scripts/` to PATH,
+and prefixes your existing prompt with a colored `project(build-type):` label.
+It never downloads dependencies,
 changes Git state or writes your shell configuration. Both setup and direct
 CMake configuration select a non-empty `CWHIP_SDK` first, then the top-level
 TOML `sdk_prefix` in `$XDG_CONFIG_HOME/cwhip/sdk.toml` (or

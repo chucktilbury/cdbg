@@ -110,8 +110,13 @@ exit
 `scripts/setup [debug|release|profile]` inherits the installed SDK's application
 build type when no mode is given. The explicit choices map to CMake `Debug`,
 `Release` and `RelWithDebInfo`, respectively, in the same `build/` directory.
-Setup creates `build/`, runs CMake there, and opens a fresh interactive Bash
-using `.project_env` only if configuration succeeds.
+Setup runs `cmake -S "$project_root" -B "$project_root/build"` without changing
+the caller's working directory, and opens a fresh interactive Bash using
+`.project_env` only if configuration succeeds. It reads the configured build
+type back from `CMakeCache.txt` for `CWHIP_BUILD_TYPE` and the prompt's
+`_BUILD_TYPE` label. Configuration failures report an error and return status 1;
+after a successful configuration, setup returns the interactive shell's exit
+status.
 Nested project shells are rejected; exit the current one before running setup
 again.
 

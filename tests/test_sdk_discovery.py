@@ -38,13 +38,20 @@ class SdkDiscoveryTest(unittest.TestCase):
         self.fallback = self.make_sdk("fallback")
         self.env["CMAKE_PREFIX_PATH"] = str(self.fallback)
         self.shell_record = self.root / "shell-sdk.txt"
+        self.shell_build_type_record = self.root / "shell-build-type.txt"
+        self.shell_mode_record = self.root / "shell-mode.txt"
         self.tools = self.root / "tools"
         self.tools.mkdir()
         shell = self.tools / "bash"
-        shell.write_text('#!/bin/sh\nprintf "%s" "${CWHIP_SDK-}" > "$SHELL_RECORD"\n')
+        shell.write_text(
+            '#!/bin/sh\nprintf "%s" "${CWHIP_SDK-}" > "$SHELL_RECORD"\n'
+            'printf "%s" "${CWHIP_BUILD_TYPE-}" > "$SHELL_BUILD_TYPE_RECORD"\n'
+            'printf "%s" "${_BUILD_TYPE-}" > "$SHELL_MODE_RECORD"\n')
         shell.chmod(0o755)
         self.env["PATH"] = f"{self.tools}:{self.env['PATH']}"
         self.env["SHELL_RECORD"] = str(self.shell_record)
+        self.env["SHELL_BUILD_TYPE_RECORD"] = str(self.shell_build_type_record)
+        self.env["SHELL_MODE_RECORD"] = str(self.shell_mode_record)
 
     def make_sdk(self, name):
         prefix = self.root / name
@@ -177,6 +184,8 @@ class SdkDiscoveryTest(unittest.TestCase):
 
     def configure(self, setup=False, success=True, extra=(), shell_input=None):
         self.shell_record.unlink(missing_ok=True)
+        self.shell_build_type_record.unlink(missing_ok=True)
+        self.shell_mode_record.unlink(missing_ok=True)
         if setup:
             command = ["/bin/bash", str(self.project / "scripts/setup"), *extra]
         else:
@@ -506,6 +515,20 @@ class SdkDiscoveryTest(unittest.TestCase):
         cache = (self.build / "CMakeCache.txt").read_text()
         self.assertIn("CMAKE_BUILD_TYPE:STRING=RelWithDebInfo", cache)
         self.assertEqual(self.shell_record.read_text(), str(self.fallback))
+        self.assertEqual(self.shell_build_type_record.read_text(), "RelWithDebInfo")
+        self.assertEqual(self.shell_mode_record.read_text(), "profile")
+
+    def test_setup_explicit_modes_override_application_build_type(self):
+        for mode, cmake_type in (
+            ("debug", "Debug"), ("release", "Release"), ("profile", "RelWithDebInfo"),
+        ):
+            with self.subTest(mode=mode):
+                self.write_application_defaults(self.root / "application-install", "MinSizeRel")
+                self.configure(setup=True, extra=(mode,))
+                self.assertIn(f"CMAKE_BUILD_TYPE:STRING={cmake_type}",
+                              (self.build / "CMakeCache.txt").read_text())
+                self.assertEqual(self.shell_build_type_record.read_text(), cmake_type)
+                self.assertEqual(self.shell_mode_record.read_text(), mode)
 
     def test_setup_without_mode_preserves_existing_cache(self):
         install_prefix = self.root / "cached-install"
@@ -517,6 +540,8 @@ class SdkDiscoveryTest(unittest.TestCase):
         cache = (self.build / "CMakeCache.txt").read_text()
         self.assertIn(f"CMAKE_INSTALL_PREFIX:PATH={install_prefix}", cache)
         self.assertIn("CMAKE_BUILD_TYPE:STRING=Release", cache)
+        self.assertEqual(self.shell_build_type_record.read_text(), "Release")
+        self.assertEqual(self.shell_mode_record.read_text(), "release")
 
     def test_setup_only_needs_python_for_existing_settings(self):
         python = self.tools / "python3"
@@ -525,7 +550,8 @@ class SdkDiscoveryTest(unittest.TestCase):
         cmake = self.tools / "cmake"
         cmake.write_text(
             "#!/bin/sh\n"
-            "printf 'CMAKE_BUILD_TYPE:STRING=\\n' > CMakeCache.txt\n"
+            'mkdir -p -- "$4"\n'
+            'printf "CMAKE_BUILD_TYPE:STRING=\\n" > "$4/CMakeCache.txt"\n'
             "exit 0\n"
         )
         cmake.chmod(0o755)

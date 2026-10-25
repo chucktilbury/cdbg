@@ -40,43 +40,58 @@ class ProjectSetupTest(unittest.TestCase):
                     "    build_type = next((arg.split('=', 1)[1] for arg in sys.argv[1:]\n"
                     "        if arg.startswith('-DCMAKE_BUILD_TYPE=')),\n"
                     "        os.environ.get('MOCK_DEFAULT_BUILD_TYPE', ''))\n"
-                    "    Path('CMakeCache.txt').write_text(\n"
+                    "    build = Path(sys.argv[sys.argv.index('-B') + 1])\n"
+                    "    build.mkdir(parents=True, exist_ok=True)\n"
+                    "    (build / 'CMakeCache.txt').write_text(\n"
                     "        f'CMAKE_BUILD_TYPE:STRING={build_type}\\n')\n"
                     "    sys.exit(int(os.environ.get('CONFIGURE_STATUS', '0')))\n"
+                    "sys.exit(int(os.environ.get('SHELL_STATUS', '0')))\n"
                 )
                 tool.chmod(0o755)
             env = dict(os.environ, PATH=f"{tools}:{os.environ['PATH']}",
                        SETUP_LOG=str(log), CWHIP_SDK=str(root / "sdk prefix"),
                        MOCK_DEFAULT_BUILD_TYPE="RelWithDebInfo")
             env.pop("_PROJECT_NAME", None)
-            for mode, cmake_type in ((None, "Debug"), ("debug", "Debug"),
-                                     ("release", "Release"), ("profile", "RelWithDebInfo")):
-                log.unlink(missing_ok=True)
-                result = subprocess.run(
-                    [BASH, str(root / "scripts/setup")] + ([mode] if mode else []),
-                    cwd=tools, env=env, capture_output=True, text=True)
-                self.assertEqual(result.returncode, 0, result.stderr)
-                configure, shell = [json.loads(line) for line in log.read_text().splitlines()]
-                self.assertEqual(configure["tool"], "cmake")
-                expected_args = [".."]
-                if mode is not None:
-                    expected_args.append(f"-DCMAKE_BUILD_TYPE={cmake_type}")
-                self.assertEqual(configure["args"], expected_args)
-                self.assertEqual(configure["cwd"], str(root / "build"))
-                self.assertEqual(shell["args"], ["--rcfile", str(root / ".project_env"), "-i"])
-                self.assertEqual(shell["env"]["_PROJECT_LOC"], str(root))
-                self.assertEqual(shell["env"]["_PROJECT_NAME"], root.name)
-                self.assertEqual(shell["env"]["_BUILD_TYPE"], mode or "profile")
-                self.assertEqual(shell["env"]["CWHIP_BUILD_TYPE"],
-                                 cmake_type if mode else "RelWithDebInfo")
-                self.assertEqual(shell["env"]["CWHIP_SDK"], str(root / "sdk prefix"))
-                self.assertFalse((root / "bin").exists())
-                self.assertFalse((root / "lib").exists())
+            for mode, cmake_type, label in (
+                (None, "RelWithDebInfo", "profile"), (None, "", "default"),
+                (None, "MinSizeRel", "minsizerel"), ("debug", "Debug", "debug"),
+                ("release", "Release", "release"), ("profile", "RelWithDebInfo", "profile"),
+            ):
+                with self.subTest(mode=mode, configured_type=cmake_type):
+                    log.unlink(missing_ok=True)
+                    result = subprocess.run(
+                        [BASH, str(root / "scripts/setup")] + ([mode] if mode else []),
+                        cwd=tools, env=dict(env, MOCK_DEFAULT_BUILD_TYPE=cmake_type),
+                        capture_output=True, text=True)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    configure, shell = [json.loads(line) for line in log.read_text().splitlines()]
+                    self.assertEqual(configure["tool"], "cmake")
+                    expected_args = ["-S", str(root), "-B", str(root / "build")]
+                    if mode is not None:
+                        expected_args.append(f"-DCMAKE_BUILD_TYPE={cmake_type}")
+                    self.assertEqual(configure["args"], expected_args)
+                    self.assertEqual(configure["cwd"], str(tools))
+                    self.assertEqual(shell["args"], ["--rcfile", str(root / ".project_env"), "-i"])
+                    self.assertEqual(shell["cwd"], str(tools))
+                    self.assertEqual(shell["env"]["_PROJECT_LOC"], str(root))
+                    self.assertEqual(shell["env"]["_PROJECT_NAME"], root.name)
+                    self.assertEqual(shell["env"]["_BUILD_TYPE"], label)
+                    self.assertEqual(shell["env"]["CWHIP_BUILD_TYPE"], cmake_type)
+                    self.assertEqual(shell["env"]["CWHIP_SDK"], str(root / "sdk prefix"))
+                    self.assertFalse((root / "bin").exists())
+                    self.assertFalse((root / "lib").exists())
             log.unlink()
             result = subprocess.run([BASH, str(root / "scripts/setup")],
                                     env=dict(env, CONFIGURE_STATUS="7"), capture_output=True)
-            self.assertEqual(result.returncode, 7)
+            self.assertEqual(result.returncode, 1)
+            self.assertIn(b"CMake configuration failed; project shell was not started.",
+                          result.stderr)
             self.assertEqual(len(log.read_text().splitlines()), 1)
+            log.unlink()
+            result = subprocess.run([BASH, str(root / "scripts/setup")],
+                                    env=dict(env, SHELL_STATUS="23"), capture_output=True)
+            self.assertEqual(result.returncode, 23)
+            self.assertEqual(len(log.read_text().splitlines()), 2)
             for arguments in (["invalid"], ["debug", "extra"]):
                 log.unlink(missing_ok=True)
                 result = subprocess.run([BASH, str(root / "scripts/setup"), *arguments],
@@ -95,17 +110,40 @@ class ProjectSetupTest(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="cdbg shell ") as directory:
             root = Path(directory)
             (root / "build").mkdir()
-            (root / ".bashrc").write_text("export CDBG_RC_LOADED=yes\n")
+            (root / ".bashrc").write_text(
+                "export CDBG_RC_LOADED=yes\nPS1='user prompt> '\n")
             env = dict(os.environ, HOME=str(root), _PROJECT_LOC=str(root),
                        _PROJECT_NAME=root.name, _BUILD_TYPE="profile",
                        CWHIP_BUILD_TYPE="RelWithDebInfo", CWHIP_SDK=str(root / "sdk prefix"))
             command = (
                 '[[ $CDBG_RC_LOADED == yes && $PWD == "$_PROJECT_LOC/build" ]] && '
                 '[[ $PATH == "$_PROJECT_LOC/bin:$_PROJECT_LOC/scripts:$CWHIP_SDK/bin:"* ]] && '
+                '[[ $PS1 == "\\[\\e[0;31;1m\\]${_PROJECT_NAME}(profile):'
+                '\\[\\e[0m\\]user prompt> " ]] && '
+                '[[ $HISTCONTROL == ignoreboth:erasedups && ! -v project_path ]] && '
                 'declare -F status add commit push all dbg >/dev/null'
             )
             result = subprocess.run(
                 [BASH, "--noprofile", "--rcfile", str(PROJECT / ".project_env"), "-ic", command],
+                env=env, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_project_environment_without_sdk(self):
+        with tempfile.TemporaryDirectory(prefix="cdbg shell ") as directory:
+            root = Path(directory)
+            (root / "build").mkdir()
+            env = dict(os.environ, HOME=str(root), _PROJECT_LOC=str(root),
+                       _PROJECT_NAME=root.name, _BUILD_TYPE="default",
+                       EXPECTED_PROMPT=(r"\[\e[0;31;1m\]" + root.name +
+                                        r"(default):\[\e[0m\]\u@\h:\w\$ "))
+            env.pop("CWHIP_SDK", None)
+            result = subprocess.run(
+                [BASH, "--noprofile", "--norc", "-c",
+                 'unset PS1; source "$1"; '
+                 '[[ $PWD == "$_PROJECT_LOC/build" && '
+                 '$PATH == "$_PROJECT_LOC/bin:$_PROJECT_LOC/scripts:$2" && '
+                 '$PS1 == "$EXPECTED_PROMPT" ]]',
+                 "shell-test", str(PROJECT / ".project_env"), env["PATH"]],
                 env=env, capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
 
