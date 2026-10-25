@@ -22,12 +22,23 @@ the runtime archive disables those inspection capabilities.
 ### Syntax cleanup
 
 The application, example and embedded test programs require an SDK containing
-[chucktilbury/cwhip#37](https://github.com/chucktilbury/cwhip/pull/37).
+[chucktilbury/cwhip#37](https://github.com/chucktilbury/cwhip/pull/37); the
+parser regression for chained conditional branches also uses
+[chucktilbury/cwhip#38](https://github.com/chucktilbury/cwhip/pull/38).
 Value returns use `return(expr)` and dictionary literals use `[key: value]`
 (`[:]` for an empty dictionary); lists still use `[]`. Use `#`, `//` or
 `/* ... */` for Cwhip comments, not `;`. Native C code is unchanged.
-The source audit found no mixed bitwise/comparison expressions requiring
-parentheses to preserve their original grouping.
+Bare `return` and `return()` are valid void returns; parenthesize arguments to
+`raise` as `raise(expr)` (`raise()` rethrows). Conditional chains use
+`else(condition)`, not `else if`; these conditions may chain. Collection
+literals can span lines and include a trailing comma. The source audit found
+no mixed bitwise/comparison expressions requiring parentheses to preserve
+their original grouping, and no remaining legacy syntax in the app, examples
+or embedded Cwhip fixtures.
+
+The GtkSourceView language definition is supplied by the selected SDK and
+staged next to the build-tree executable and in the install tree; cdbg does
+not bundle a separate copy.
 
 Use a fresh build directory when changing SDKs so package lock files are
 regenerated for the selected SDK.

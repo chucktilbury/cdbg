@@ -4,7 +4,10 @@
 
 - Migrate application/example value returns and embedded debugger fixtures to
   the Cwhip syntax cleanup in compiler PR #37, including bracket dictionaries.
-  Preserve native C fixtures, GDB/MI syntax and existing callable declarations.
+  Document parenthesized raise arguments, `else(condition)` chains, and the
+  SDK-provided GtkSourceView language definition; test chained conditions from
+  compiler PR #38. Preserve native C fixtures, GDB/MI syntax and existing
+  callable declarations.
 - Make old-SDK rejection tests explicitly select the incompatible prefix through
   settings and environment overrides, even with a compatible SDK discoverable
   through PATH or CMake. Normal discovery may legitimately skip an old SDK.
