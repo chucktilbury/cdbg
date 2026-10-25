@@ -24,6 +24,13 @@ class Check {
 }
 start {
     Check test = Check()
+    int64 branch = 2
+    int64 selected = 0
+    if (branch == 1) { selected = 1 }
+    else (branch == 2) { selected = 2 }
+    else (branch == 3) { selected = 3 }
+    else { selected = 4 }
+    test.require(selected == 2, "else condition chains")
     MiParser parser = MiParser()
     parser.parse("12^done,stack=[frame={level=\"0\",func=\"main\",fullname=\"a,b.cw\",line=\"10\"}]")
     test.require(parser.valid && parser.token.equals("12") && parser.kind.equals("^") &&
@@ -1385,7 +1392,9 @@ start {
     String missing = null
     Counter worker = Counter()
     list items = [21, true, "hello", [1, [2, [3]]], 4, 5, 6, 7, 8]
-    dict mapping = ["key": 42]
+    dict mapping = [
+        "key": 42,
+    ]
     buffer bytes = buffer[1, 2, 255]
     String longText = ""
     while (longText.length < 300) {
