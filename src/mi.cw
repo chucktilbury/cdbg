@@ -13,10 +13,10 @@ class MiValue {
     MiValue field(String key) {
         int64 i = 0
         while (i < keys.length) {
-            if ((keys[i] as String).equals(key)) { return values[i] as MiValue }
+            if ((keys[i] as String).equals(key)) { return(values[i] as MiValue) }
             i = i + 1
         }
-        return MiValue()
+        return(MiValue())
     }
 }
 
@@ -30,17 +30,17 @@ class MiParser {
     MiValue data
 
     String character() {
-        if (offset >= input.length) { return "" }
-        return input.slice(offset, offset + 1)
+        if (offset >= input.length) { return("") }
+        return(input.slice(offset, offset + 1))
     }
     bool take(String expected) {
         if (!character().equals(expected)) { valid = false
-            return false }
+            return(false) }
         offset = offset + 1
-        return true
+        return(true)
     }
     bool digit(String value) {
-        return value.length == 1 && int64(value.byteAt(0)) >= 48 && int64(value.byteAt(0)) <= 57
+        return(value.length == 1 && int64(value.byteAt(0)) >= 48 && int64(value.byteAt(0)) <= 57)
     }
     String word() {
         int64 first = offset
@@ -48,17 +48,17 @@ class MiParser {
                !character().equals(",") && !character().equals("}") &&
                !character().equals("]")) { offset = offset + 1 }
         if (first == offset) { valid = false }
-        return input.slice(first, offset)
+        return(input.slice(first, offset))
     }
     String quoted() {
         buffer bytes = buffer[]
-        if (!take("\"")) { return "" }
+        if (!take("\"")) { return("") }
         while (offset < input.length && !character().equals("\"") && valid) {
             int64 byte = int64(input.byteAt(offset))
             offset = offset + 1
             if (byte == 92) {
                 if (offset >= input.length) { valid = false
-                    return "" }
+                    return("") }
                 byte = int64(input.byteAt(offset))
                 offset = offset + 1
                 if (byte >= 48 && byte <= 55) {
@@ -71,14 +71,14 @@ class MiParser {
                         count = count + 1
                     }
                     if (number > 255) { valid = false
-                        return "" }
+                        return("") }
                     byte = number
                 } else {
                     String escapes = "nrtbfv\\\"'"
                     list replacements = [10, 13, 9, 8, 12, 11, 92, 34, 39]
                     int64 index = escapes.find(input.slice(offset - 1, offset))
                     if (index < 0) { valid = false
-                        return "" }
+                        return("") }
                     byte = int64(replacements[index] as int8)
                 }
             }
@@ -88,17 +88,17 @@ class MiParser {
         Process.OutputDecoder decoder = Process.OutputDecoder()
         String text = decoder.decode(bytes)
         text.append(decoder.finish())
-        return text
+        return(text)
     }
     MiValue value(int64 depth) {
         MiValue node = MiValue()
         if (depth > 32) { valid = false
-            return node }
+            return(node) }
         if (character().equals("\"")) { node.text = quoted()
-            return node }
+            return(node) }
         String open = character()
         if (!open.equals("{") && !open.equals("[")) { valid = false
-            return node }
+            return(node) }
         offset = offset + 1
         String close = "}"
         if (open.equals("[")) { close = "]" }
@@ -117,7 +117,7 @@ class MiParser {
             }
         }
         take(close)
-        return node
+        return(node)
     }
     void parse(String line) {
         input = line
@@ -168,8 +168,8 @@ class MiParser {
         if (offset != input.length) { valid = false }
     }
     String quote(String text) {
-        return format("\"{}\"", text.replace("\\", "\\\\").replace("\"", "\\\"")
-            .replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t"))
+        return(format("\"{}\"", text.replace("\\", "\\\\").replace("\"", "\\\"")
+            .replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t")))
     }
 }
 
@@ -188,7 +188,7 @@ class ArgumentList {
         Process.OutputDecoder decoder = Process.OutputDecoder()
         String text = decoder.decode(bytes)
         text.append(decoder.finish())
-        return text
+        return(text)
     }
     bool parse(String text) {
         values = []
@@ -222,7 +222,7 @@ class ArgumentList {
                         if (i >= text.length) {
                             error = "trailing backslash"
                             values = []
-                            return false
+                            return(false)
                         }
                         current.append(text.byteAt(i))
                         i = i + 1
@@ -233,10 +233,10 @@ class ArgumentList {
         if (quote != 0) {
             error = "unterminated quote"
             values = []
-            return false
+            return(false)
         }
         if (started) { values.append(word(current)) }
-        return true
+        return(true)
     }
     String display(list items) {
         String text = ""
@@ -250,6 +250,6 @@ class ArgumentList {
             } else { text.append(item) }
             i = i + 1
         }
-        return text
+        return(text)
     }
 }

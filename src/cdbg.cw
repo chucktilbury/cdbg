@@ -6,12 +6,12 @@ include "terminal.cw"
 
 class DebugDiagnostic {
     String header(String severity, String code, String text) {
-        return format("cdbg: {}[{}]: {}", severity, code, text)
+        return(format("cdbg: {}[{}]: {}", severity, code, text))
     }
     String emit(String severity, String code, String text) {
         String message = header(severity, code, text)
         System.StandardIO().writeErrorLine(message)
-        return message
+        return(message)
     }
 }
 
@@ -190,7 +190,7 @@ class Cdbg {
         Gtk.Button item = Gtk.Button(title)
         item.onClicked(action)
         row.append(item)
-        return item
+        return(item)
     }
     GtkSource.View pane() {
         GtkSource.View view = GtkSource.View()
@@ -199,14 +199,14 @@ class Cdbg {
         view.setEditable(false)
         view.widget().setHExpand(true)
         view.widget().setVExpand(true)
-        return view
+        return(view)
     }
     Gtk.ScrolledWindow scroll(GtkSource.View view) {
         Gtk.ScrolledWindow item = Gtk.ScrolledWindow()
         item.setChild(view.widget())
         item.setHExpand(true)
         item.setVExpand(true)
-        return item
+        return(item)
     }
     void activate() {
         if (window != null && !window.disposed()) { window.present()
@@ -358,16 +358,16 @@ class Cdbg {
         }
     }
     String initialPath() {
-        if (!targetPath.equals("")) { return System.FileSystem().absolutePath(targetPath) }
+        if (!targetPath.equals("")) { return(System.FileSystem().absolutePath(targetPath)) }
         if (source != null) {
             int64 i = 0
             while (i < sourceFiles.length) {
                 DebugSource file = sourceFiles[i] as DebugSource
-                if (file.view == source && !file.path.equals("")) { return file.path }
+                if (file.view == source && !file.path.equals("")) { return(file.path) }
                 i = i + 1
             }
         }
-        return ""
+        return("")
     }
     void chooseExecutable() {
         if (fileDialog != null && fileDialog.pending()) { return }
@@ -410,14 +410,14 @@ class Cdbg {
         if (absolute.equals("")) { absolute = path }
         if (!System.FileSystem().isFile(absolute)) {
             loadFailure(format("Source is not a local file: {}", absolute))
-            return false
+            return(false)
         }
         if (executableImage(absolute)) {
             loadFailure(format("{} is an executable, not source code; use File > Load Executable...",
                 absolute))
-            return false
+            return(false)
         }
-        return showSource(absolute, "")
+        return(showSource(absolute, ""))
     }
     bool executableImage(String path) {
         System.File file = null
@@ -430,7 +430,7 @@ class Cdbg {
         } except(Exception) {
             if (file != null && file.isOpen()) { file.close() }
         }
-        return false
+        return(false)
     }
     void showFind() {
         if (findWindow == null || findWindow.disposed()) { return }
@@ -448,7 +448,7 @@ class Cdbg {
     }
     bool findCloseRequested() {
         findWindow.setVisible(false)
-        return true
+        return(true)
     }
     void findNext() { find(false) }
     void findPrevious() { find(true) }
@@ -474,10 +474,10 @@ class Cdbg {
     }
     DebugSource currentSource() {
         int64 page = sourceTabs.currentPage()
-        if (page < 0 || page >= sourceFiles.length) { return null }
+        if (page < 0 || page >= sourceFiles.length) { return(null) }
         DebugSource file = sourceFiles[page] as DebugSource
-        if (file.path.equals("")) { return null }
-        return file
+        if (file.path.equals("")) { return(null) }
+        return(file)
     }
     void sourceChanged() {
         int64 page = sourceTabs.currentPage()
@@ -512,12 +512,12 @@ class Cdbg {
         String raw = Gtk.Config().value(stateText, "", key)
         if (!raw.startsWith("i") || raw.length > 8 || !identifier(raw.slice(1, raw.length))) {
             if (!raw.equals("")) { stateDiagnostic(format("Invalid {}; using default", key)) }
-            return fallback
+            return(fallback)
         }
         int64 value = raw.slice(1, raw.length).toInt64()
-        if (value < minimum) { return minimum }
-        if (value > maximum) { return maximum }
-        return value
+        if (value < minimum) { return(minimum) }
+        if (value > maximum) { return(maximum) }
+        return(value)
     }
     void readState() {
         stateText = ""
@@ -575,10 +575,10 @@ class Cdbg {
     }
     bool savedFlag(String table, String key, bool fallback) {
         String raw = Gtk.Config().value(stateText, table, key)
-        if (raw.equals("btrue")) { return true }
-        if (raw.equals("bfalse")) { return false }
+        if (raw.equals("btrue")) { return(true) }
+        if (raw.equals("bfalse")) { return(false) }
         if (!raw.equals("")) { stateDiagnostic(format("Invalid {}; using default", key)) }
-        return fallback
+        return(fallback)
     }
     // Per-target setup: Break at start defaults to the directory default
     // (true for a new configuration). Command-line arguments after -- override
@@ -718,11 +718,11 @@ class Cdbg {
     }
     String outputHistory(String previous, String text) {
         previous.append(text)
-        if (previous.length <= 65536) { return previous }
+        if (previous.length <= 65536) { return(previous) }
         int64 first = previous.length - 65536
         while (first < previous.length && previous.byteAt(first) >= 128u &&
             previous.byteAt(first) <= 191u) { first = first + 1 }
-        return previous.slice(first, previous.length)
+        return(previous.slice(first, previous.length))
     }
     void log(String text) {
         console.setText(outputHistory(console.text(), text))
@@ -849,7 +849,7 @@ class Cdbg {
     }
     String compiler() {
         String explicit = System.Process().getEnv("CDBG_COMPILER")
-        if (!explicit.equals("")) { return explicit }
+        if (!explicit.equals("")) { return(explicit) }
         String own = System.Process().arg(0)
         if (!own.contains("/")) {
             list paths = System.Process().getEnv("PATH").split(":")
@@ -863,8 +863,8 @@ class Cdbg {
         }
         String sibling = System.FileSystem().join(System.FileSystem().dirname(
             System.FileSystem().absolutePath(own)), "cwhip")
-        if (System.FileSystem().isFile(sibling)) { return sibling }
-        return "cwhip"
+        if (System.FileSystem().isFile(sibling)) { return(sibling) }
+        return("cwhip")
     }
     void cleanup() {
         if (!temporary.equals("")) {
@@ -928,7 +928,7 @@ class Cdbg {
         if (findWindow != null && !findWindow.disposed()) { findWindow.dispose() }
         if (watchWindow != null && !watchWindow.disposed()) { watchWindow.dispose() }
         endSession()
-        return false
+        return(false)
     }
     void launch() {
         saveState(false)
@@ -1054,12 +1054,12 @@ class Cdbg {
             reason = format("exit {}", process.exitCode())
         }
         if (!process.error().equals("")) { reason.append(format(": {}", process.error())) }
-        return reason
+        return(reason)
     }
     bool stopped() {
         if (!loaded || running || !hasRun) { fail("This operation requires a stopped target")
-            return false }
-        return true
+            return(false) }
+        return(true)
     }
     void resume() {
         if (!loaded || running || restarting) {
@@ -1156,13 +1156,13 @@ class Cdbg {
         enqueue("-exec-interrupt", "interrupt", "")
     }
     bool identifier(String text) {
-        if (text.equals("")) { return false }
+        if (text.equals("")) { return(false) }
         int64 i = 0
         while (i < text.length) {
-            if (int64(text.byteAt(i)) < 48 || int64(text.byteAt(i)) > 57) { return false }
+            if (int64(text.byteAt(i)) < 48 || int64(text.byteAt(i)) > 57) { return(false) }
             i = i + 1
         }
-        return true
+        return(true)
     }
     void addBreakpoint(String text) {
         text = text.trim()
@@ -1210,15 +1210,15 @@ class Cdbg {
             }
             i = i + 1
         }
-        return ids
+        return(ids)
     }
     void breakpointClicked(int64 line) {}
     bool breakpointReady() {
         if (!loaded || running || active != null || requests.length > 0 || currentSource() == null) {
             status.setText("Load a target, pause it, and select a source file before changing breakpoints")
-            return false
+            return(false)
         }
-        return true
+        return(true)
     }
     void toggleBreakpoint() {
         if (!breakpointReady()) { return }
@@ -1264,9 +1264,9 @@ class Cdbg {
         enqueue("-break-list", "breaks", "")
     }
     bool sameSource(String path, String file) {
-        if (path.equals("")) { return false }
-        if (System.FileSystem().absolutePath(path).equals(file)) { return true }
-        return !path.contains("/") && System.FileSystem().basename(file).equals(path)
+        if (path.equals("")) { return(false) }
+        if (System.FileSystem().absolutePath(path).equals(file)) { return(true) }
+        return(!path.contains("/") && System.FileSystem().basename(file).equals(path))
     }
     void syncBreakpointMarks() {
         if (window == null || window.disposed()) { return }
@@ -1311,7 +1311,7 @@ class Cdbg {
         String state = "enabled"
         if (!enabled) { state = "disabled" }
         if (item.field("pending").text.length > 0) {
-            return format("{} pending {} (not yet installed)", state, item.field("pending").text)
+            return(format("{} pending {} (not yet installed)", state, item.field("pending").text))
         }
         String where = format("{}:{}", item.field("file").text, item.field("line").text)
         if (item.field("addr").text.equals("<MULTIPLE>")) {
@@ -1320,7 +1320,7 @@ class Cdbg {
         String text = format("{} installed {}", state, where)
         if (!item.field("func").text.equals("")) { text.append(format(" in {}", item.field("func").text)) }
         text.append(format(" hits {}", item.field("times").text))
-        return text
+        return(text)
     }
     // Lists enabled breakpoints whose hit count did not change during the run.
     int64 reportUnreached() {
@@ -1344,7 +1344,7 @@ class Cdbg {
             }
             i = i + 1
         }
-        return count
+        return(count)
     }
     void showWatch() {
         watchMenu.setVisible(false)
@@ -1356,7 +1356,7 @@ class Cdbg {
     }
     void closeWatch() { watchWindow.setVisible(false) }
     bool watchCloseRequested() { closeWatch()
-        return true }
+        return(true) }
     void showSetup() {
         setupStart.setActive(breakAtStart)
         setupArguments.setText(ArgumentList().display(arguments))
@@ -1369,7 +1369,7 @@ class Cdbg {
     }
     void closeSetup() { setupWindow.setVisible(false) }
     bool setupCloseRequested() { closeSetup()
-        return true }
+        return(true) }
     // Apply never restarts a running program: arguments and Break at start
     // take effect on the next Run (from not started), Restart or Load.
     void applySetup() {
@@ -1435,16 +1435,16 @@ class Cdbg {
         if (expression.equals("") || expression.length > 4096 || expressions.length >= 64) {
             watchStatus.setText("Enter a watch expression (maximum 4096 bytes, 64 watches)")
             fail("Enter a watch expression (maximum 4096 bytes, 64 watches)")
-            return false }
+            return(false) }
         int64 i = 0
         while (i < expressions.length) {
-            if ((expressions[i] as String).equals(expression)) { return true }
+            if ((expressions[i] as String).equals(expression)) { return(true) }
             i = i + 1
         }
         expressions.append(expression)
         if (loaded && !running && hasRun) { refresh() }
         else { watches.setText("Watches will be evaluated at the next stop") }
-        return true
+        return(true)
     }
     void stackClicked(int64 line) {
         int64 row = line - 1
@@ -1519,7 +1519,7 @@ class Cdbg {
         sourceText = ""
         if (path.equals("") || !System.FileSystem().isFile(path)) {
             loadFailure(format("Source unavailable: {}", path))
-            return false
+            return(false)
         }
         System.File file = null
         try {
@@ -1529,24 +1529,24 @@ class Cdbg {
             file.close()
             if (!readError.equals("")) {
                 loadFailure(format("Could not read source {}: {}", path, readError))
-                return false
+                return(false)
             }
             if (!GtkSource.Content().isText(text)) {
                 loadFailure(format("Source is not a text file: {}", path))
-                return false
+                return(false)
             }
             sourceText = text
-            return true
+            return(true)
         } except(Exception) as err {
             if (file != null && file.isOpen()) { file.close() }
             loadFailure(format("Could not display source {}: {}", path, err.message))
         }
-        return false
+        return(false)
     }
     bool readableText(String path) {
         bool readable = readText(path)
         sourceText = ""
-        return readable
+        return(readable)
     }
     bool showSource(String path, String line) {
         String absolute = System.FileSystem().absolutePath(path)
@@ -1564,11 +1564,11 @@ class Cdbg {
                     file.centeredStop = stopCount
                 }
                 removeMessagePage()
-                return true
+                return(true)
             }
             i = i + 1
         }
-        if (!readText(path)) { return false }
+        if (!readText(path)) { return(false) }
         source = pane()
         source.setText(sourceText)
         sourceText = ""
@@ -1588,7 +1588,7 @@ class Cdbg {
             source.centerCursor(line.toInt64(), 1)
             document.centeredStop = stopCount
         }
-        return true
+        return(true)
     }
     void response(MiParser record) {
         if (active == null || !record.token.equals(active.token)) {

@@ -29,8 +29,8 @@ start {
     float nativeFloat = 0.25
     list small = [s8, u8, s16, u16, s32, u32, f32, nativeInt, nativeUint, nativeFloat]
     list wide = [s64, u64, f64]
-    dict smallMap = {"s8": s8, "u8": u8, "s16": s16, "u16": u16, "s32": s32, "u32": u32, "f32": f32, "nativeInt": nativeInt, "nativeUint": nativeUint, "nativeFloat": nativeFloat}
-    dict wideMap = {"s64": s64, "u64": u64, "f64": f64}
+    dict smallMap = ["s8": s8, "u8": u8, "s16": s16, "u16": u16, "s32": s32, "u32": u32, "f32": f32, "nativeInt": nativeInt, "nativeUint": nativeUint, "nativeFloat": nativeFloat]
+    dict wideMap = ["s64": s64, "u64": u64, "f64": f64]
     fp32 negativeZero = -0.0
     fp32 infinity = fp32(1.0) / fp32(0.0)
     fp32 nanValue = fp32(0.0) / fp32(0.0)
@@ -42,7 +42,7 @@ start {
     range<int64> descending = int64(3)..int64(1)
     range<int64> missingRange = null
     list boxedRanges = [narrow, signedBounds, unsignedBounds, descending, missingRange]
-    dict rangeMap = {"signed": signedBounds, "unsigned": unsignedBounds, "descending": descending, "missing": missingRange}
+    dict rangeMap = ["signed": signedBounds, "unsigned": unsignedBounds, "descending": descending, "missing": missingRange]
     for (iterator in descending) {
         bool iteratorMarker = iterator == 3
     }
