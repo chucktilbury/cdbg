@@ -31,7 +31,9 @@ class SdkDiscoveryTest(unittest.TestCase):
         self.env = os.environ.copy()
         for name in (
             "CWHIP_SDK", "CMAKE_PREFIX_PATH", "Cwhip_DIR", "Cwhip_ROOT",
-            "_PROJECT_NAME", "XDG_CONFIG_HOME", "CMAKE_INSTALL_PREFIX", "CMAKE_BUILD_TYPE",
+            "_PROJECT_NAME", "_PROJECT_LOC", "_BUILD_TYPE", "_PROJECT_BUILD_DIR",
+            "CWHIP_BUILD_TYPE", "XDG_CONFIG_HOME", "CMAKE_INSTALL_PREFIX",
+            "CMAKE_BUILD_TYPE",
         ):
             self.env.pop(name, None)
         self.env["HOME"] = str(self.home)

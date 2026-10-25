@@ -20,6 +20,7 @@ class ProjectSetupTest(unittest.TestCase):
             root = Path(directory)
             (root / "scripts").mkdir()
             shutil.copy2(PROJECT / "scripts/setup", root / "scripts/setup")
+            shutil.copy2(PROJECT / "scripts/clean", root / "scripts/clean")
             (root / ".project_env").write_text("")
             tools = root / "tools"
             tools.mkdir()
@@ -31,8 +32,11 @@ class ProjectSetupTest(unittest.TestCase):
                     "import json, os, sys\n"
                     "from pathlib import Path\n"
                     "with open(os.environ['SETUP_LOG'], 'a') as log:\n"
+                    "    generated = [Path(os.environ['PROJECT_ROOT']) / name for name in\n"
+                    "        ('bin', 'build', 'lib', 'doc/out', 'share')]\n"
                     "    log.write(json.dumps({'tool': Path(sys.argv[0]).name,\n"
                     "        'args': sys.argv[1:], 'cwd': os.getcwd(),\n"
+                    "        'generated': [path.exists() for path in generated],\n"
                     "        'env': {key: os.environ.get(key, '') for key in\n"
                     "            ('_PROJECT_LOC', '_PROJECT_NAME', '_BUILD_TYPE',\n"
                     "             'CWHIP_BUILD_TYPE', 'CWHIP_SDK')}}) + '\\n')\n"
@@ -45,13 +49,18 @@ class ProjectSetupTest(unittest.TestCase):
                     "    (build / 'CMakeCache.txt').write_text(\n"
                     "        f'CMAKE_BUILD_TYPE:STRING={build_type}\\n')\n"
                     "    sys.exit(int(os.environ.get('CONFIGURE_STATUS', '0')))\n"
+                    "if Path(sys.argv[0]).name == 'bash' and '--rcfile' not in sys.argv:\n"
+                    "    os.execv('/bin/bash', ['/bin/bash', *sys.argv[1:]])\n"
                     "sys.exit(int(os.environ.get('SHELL_STATUS', '0')))\n"
                 )
                 tool.chmod(0o755)
             env = dict(os.environ, PATH=f"{tools}:{os.environ['PATH']}",
-                       SETUP_LOG=str(log), CWHIP_SDK=str(root / "sdk prefix"),
+                       SETUP_LOG=str(log), PROJECT_ROOT=str(root),
+                       CWHIP_SDK=str(root / "sdk prefix"),
                        MOCK_DEFAULT_BUILD_TYPE="RelWithDebInfo")
-            env.pop("_PROJECT_NAME", None)
+            for name in ("_PROJECT_NAME", "_PROJECT_LOC", "_BUILD_TYPE",
+                         "_PROJECT_BUILD_DIR", "CWHIP_BUILD_TYPE"):
+                env.pop(name, None)
             for mode, cmake_type, label in (
                 (None, "RelWithDebInfo", "profile"), (None, "", "default"),
                 (None, "MinSizeRel", "minsizerel"), ("debug", "Debug", "debug"),
@@ -92,7 +101,8 @@ class ProjectSetupTest(unittest.TestCase):
                                     env=dict(env, SHELL_STATUS="23"), capture_output=True)
             self.assertEqual(result.returncode, 23)
             self.assertEqual(len(log.read_text().splitlines()), 2)
-            for arguments in (["invalid"], ["debug", "extra"]):
+            for arguments in (["invalid"], ["debug", "extra"],
+                              ["--clean", "--clean"], ["debug", "release"]):
                 log.unlink(missing_ok=True)
                 result = subprocess.run([BASH, str(root / "scripts/setup"), *arguments],
                                         env=env, capture_output=True)
@@ -106,27 +116,110 @@ class ProjectSetupTest(unittest.TestCase):
             self.assertIn(b"already active", result.stderr)
             self.assertFalse(log.exists())
 
+    def test_setup_clean_removes_generated_outputs_before_configuring(self):
+        with tempfile.TemporaryDirectory(prefix="cdbg setup clean ") as directory:
+            root = Path(directory)
+            (root / "scripts").mkdir()
+            shutil.copy2(PROJECT / "scripts/setup", root / "scripts/setup")
+            shutil.copy2(PROJECT / "scripts/clean", root / "scripts/clean")
+            (root / ".project_env").write_text("")
+            for path in ("bin/generated", "build/generated", "lib/generated",
+                         "doc/out/generated", "share/generated"):
+                generated = root / path
+                generated.parent.mkdir(parents=True, exist_ok=True)
+                generated.write_text("generated")
+            (root / "src").mkdir()
+            (root / "src/kept").write_text("source")
+            tools = root / "tools"
+            tools.mkdir()
+            log = root / "calls.jsonl"
+            cmake = tools / "cmake"
+            cmake.write_text(
+                f"#!{sys.executable}\n"
+                "import json, os, sys\n"
+                "from pathlib import Path\n"
+                "root = Path(os.environ['PROJECT_ROOT'])\n"
+                "generated = [root / name for name in ('bin', 'build', 'lib', 'doc/out', 'share')]\n"
+                "with open(os.environ['SETUP_LOG'], 'a') as log:\n"
+                "    log.write(json.dumps({'tool': 'cmake', 'generated': "
+                "[path.exists() for path in generated]}) + '\\n')\n"
+                "build = Path(sys.argv[sys.argv.index('-B') + 1])\n"
+                "build.mkdir(parents=True, exist_ok=True)\n"
+                "(build / 'CMakeCache.txt').write_text('CMAKE_BUILD_TYPE:STRING=Debug\\n')\n"
+            )
+            cmake.chmod(0o755)
+            bash = tools / "bash"
+            bash.write_text(
+                f"#!{sys.executable}\n"
+                "import os, sys\n"
+                "if '--rcfile' not in sys.argv:\n"
+                "    os.execv('/bin/bash', ['/bin/bash', *sys.argv[1:]])\n"
+                "sys.exit(0)\n"
+            )
+            bash.chmod(0o755)
+            env = dict(os.environ, PATH=f"{tools}:{os.environ['PATH']}",
+                       PROJECT_ROOT=str(root), SETUP_LOG=str(log),
+                       CWHIP_SDK=str(root / "sdk"))
+            for name in ("_PROJECT_NAME", "_PROJECT_LOC", "_BUILD_TYPE",
+                         "_PROJECT_BUILD_DIR", "CWHIP_BUILD_TYPE"):
+                env.pop(name, None)
+
+            result = subprocess.run(
+                [BASH, str(root / "scripts/setup"), "debug", "--clean"],
+                cwd=root, env=env, capture_output=True, text=True)
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            configure = json.loads(log.read_text())
+            self.assertEqual(configure["tool"], "cmake")
+            self.assertEqual(configure["generated"], [False] * 5)
+            self.assertEqual((root / "src/kept").read_text(), "source")
+            self.assertTrue((root / "build/CMakeCache.txt").exists())
+
     def test_project_environment(self):
         with tempfile.TemporaryDirectory(prefix="cdbg shell ") as directory:
             root = Path(directory)
             (root / "build").mkdir()
             (root / ".bashrc").write_text(
                 "export CDBG_RC_LOADED=yes\nPS1='user prompt> '\n")
+            build_log = root / "build-calls.jsonl"
+            tools = root / "tools"
+            tools.mkdir()
+            cmake = tools / "cmake"
+            cmake.write_text(
+                f"#!{sys.executable}\n"
+                "import json, os, sys\n"
+                "with open(os.environ['BUILD_LOG'], 'a') as log:\n"
+                "    log.write(json.dumps(sys.argv[1:]) + '\\n')\n"
+                "sys.exit(17 if 'fail' in sys.argv else 0)\n"
+            )
+            cmake.chmod(0o755)
             env = dict(os.environ, HOME=str(root), _PROJECT_LOC=str(root),
                        _PROJECT_NAME=root.name, _BUILD_TYPE="profile",
-                       CWHIP_BUILD_TYPE="RelWithDebInfo", CWHIP_SDK=str(root / "sdk prefix"))
+                       CWHIP_BUILD_TYPE="RelWithDebInfo", CWHIP_SDK=str(root / "sdk prefix"),
+                       PATH=f"{tools}:{os.environ['PATH']}", BUILD_LOG=str(build_log))
             command = (
                 '[[ $CDBG_RC_LOADED == yes && $PWD == "$_PROJECT_LOC/build" ]] && '
                 '[[ $PATH == "$_PROJECT_LOC/bin:$_PROJECT_LOC/scripts:$CWHIP_SDK/bin:"* ]] && '
                 '[[ $PS1 == "\\[\\e[0;31;1m\\]${_PROJECT_NAME}(profile):'
                 '\\[\\e[0m\\]user prompt> " ]] && '
                 '[[ $HISTCONTROL == ignoreboth:erasedups && ! -v project_path ]] && '
-                'declare -F status add commit push all dbg >/dev/null'
+                'declare -F build rebuild status add commit push all dbg >/dev/null || exit; '
+                'build cdbg || exit; rebuild cdbg || exit; build fail; '
+                '[[ $? == 17 ]]'
             )
             result = subprocess.run(
                 [BASH, "--noprofile", "--rcfile", str(PROJECT / ".project_env"), "-ic", command],
                 env=env, capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(
+                [json.loads(line) for line in build_log.read_text().splitlines()],
+                [
+                    ["--build", str(root / "build"), "--parallel", "12", "--target", "cdbg"],
+                    ["--build", str(root / "build"), "--parallel", "12", "--clean-first",
+                     "--target", "cdbg"],
+                    ["--build", str(root / "build"), "--parallel", "12", "--target", "fail"],
+                ],
+            )
 
     def test_project_environment_without_sdk(self):
         with tempfile.TemporaryDirectory(prefix="cdbg shell ") as directory:

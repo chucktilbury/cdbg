@@ -12,23 +12,26 @@ The debugger build does not use a compiler checkout:
 
 ```sh
 export CWHIP_SDK=/path/to/cwhip-sdk
-./scripts/setup debug
-cmake --build . --target cdbg
+./scripts/setup --clean debug
+build cdbg
 cdbg ../examples/debugger.cw
 exit
 ```
 
-Run `cmake --build build --target test-all` for the component's build and test
+Run `build test-all` inside the project shell for the component's build and test
 suite; `cmake --install build --prefix /path/to/install` installs the
 executable and language resource. See [BUILD.md](doc/BUILD.md) for prerequisites,
-test detection, the optional no-op check and cleaning.
+test detection, the optional no-op check and cleaning. `rebuild [TARGET...]`
+does a clean-first build; `clean` removes generated outputs and the configured
+build tree, while `./scripts/setup --clean` cleans before configuring again.
 The project-owned setup shell follows the Cwhip template. Without a mode it
 inherits the installed SDK's application build type or the existing CMake
 cache; `debug`, `release` and `profile` explicitly select `Debug`, `Release`
 and `RelWithDebInfo`. It starts in `build/`; the executable is written to the
 repository's `bin/`, with its language resource under `share/`. Direct CMake
-configuration and output-directory overrides are also documented in the build
-guide. The installed SDK needs application output-directory support in
+configuration is only needed for custom CMake options such as output-directory
+overrides, which are documented in the build guide. The installed SDK needs
+application output-directory support in
 addition to version `0.0.2` and ABI `numeric-v2`.
 
 `cdbg [SOURCE.cw|EXECUTABLE [-- ARGS...]]` opens the GUI in the foreground;
@@ -377,7 +380,8 @@ Watches context dialog, tab borders and source-tab close icons are implemented.
 With Xvfb, dbus-daemon and GDB installed, run the standalone component suite:
 
 ```sh
-cmake --build build --target test-all
+./scripts/setup
+build test-all
 ```
 
 The suite checks MI quoting/parsing (including fragmented transport input),

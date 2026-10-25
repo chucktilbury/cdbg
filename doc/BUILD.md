@@ -101,24 +101,23 @@ Run it from any working directory; paths containing spaces are supported:
 
 ```sh
 export CWHIP_SDK="/path/to/cwhip-sdk"
-./scripts/setup debug
-cmake --build . --target cdbg
+./scripts/setup --clean debug
+build cdbg
 cdbg ../examples/debugger.cw
 exit
 ```
 
-`scripts/setup [debug|release|profile]` inherits the installed SDK's application
+`scripts/setup [--clean] [debug|release|profile]` inherits the installed SDK's application
 build type when no mode is given. The explicit choices map to CMake `Debug`,
 `Release` and `RelWithDebInfo`, respectively, in the same `build/` directory.
-Setup runs `cmake -S "$project_root" -B "$project_root/build"` without changing
-the caller's working directory, and opens a fresh interactive Bash using
-`.project_env` only if configuration succeeds. It reads the configured build
-type back from `CMakeCache.txt` for `CWHIP_BUILD_TYPE` and the prompt's
-`_BUILD_TYPE` label. Configuration failures report an error and return status 1;
-after a successful configuration, setup returns the interactive shell's exit
-status.
-Nested project shells are rejected; exit the current one before running setup
-again.
+With `--clean`, setup first runs `scripts/clean`, removing generated `bin/`,
+`build/`, `lib/`, `doc/out/` and `share/` outputs before it configures. Setup
+opens a fresh interactive Bash using `.project_env` only if configuration
+succeeds. `build [TARGET...]` builds the project (or named targets), and
+`rebuild [TARGET...]` performs a clean-first build. `clean` removes all
+generated outputs and the configured build tree; use `rebuild` when retaining
+the CMake configuration is preferable. Nested project shells are rejected;
+exit the current one before running setup again.
 
 ### SDK selection protocol
 
@@ -209,10 +208,13 @@ needed. Starting the shell never runs Git mutations, downloads dependencies or
 writes user rc files; any commands in your own `.bashrc` remain user-controlled.
 Exit returns to the original shell without changing its environment.
 
-Alternatively, configure directly using `CMAKE_PREFIX_PATH` (or `CWHIP_SDK`):
+Use direct CMake configuration when you need options that `scripts/setup` does
+not expose, such as custom output directories or a non-interactive configure:
 
 ```sh
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DCMAKE_PREFIX_PATH=/path/to/cwhip-sdk
+cmake -S . -B build \
+  -DCMAKE_PREFIX_PATH=/path/to/cwhip-sdk \
+  -DCWHIP_BIN_DIR="$PWD/build/bin" -DCWHIP_LIB_DIR="$PWD/build/lib"
 cmake --build build --target cdbg
 ```
 
@@ -242,7 +244,8 @@ execution. Generated outputs and Python caches are ignored by Git.
 ## Test
 
 ```sh
-cmake --build build --target test-all
+./scripts/setup
+build test-all
 ```
 
 `test-all` first builds the debugger and native PTY test, then runs serial CTest with
@@ -291,8 +294,8 @@ cmake -S . -B build \
 ```
 
 The rest of the GUI/GDB session tests run using only the installed SDK and
-debugger repository. Run the separate opt-in no-op incremental-build check with
-`cmake --build build --target check-noop`. It is never part of ordinary CTest.
+debugger repository. Inside the project shell, run `build check-noop` for the
+separate opt-in no-op incremental-build check. It is never part of ordinary CTest.
 
 ## Install and clean
 
@@ -312,6 +315,10 @@ new configure command. Clean also removes the configured `bin/` executable
 outputs and staged language resource; it does not delete source files or the
 SDK. Installation remains independent of the chosen build output directories,
 and the installed tree can be moved intact to another prefix.
+
+Use `clean` or `./scripts/setup --clean` to remove the complete generated
+workspace before a fresh configure. To clean only CMake build products while
+preserving the configured build tree, use `cmake --build build --target clean`.
 
 `cdbg` remains a local GDB/MI proof of concept, not a production debugger:
 there is no remote/attach, LLDB, DAP, inferior stdin, or complete Cwhip object
