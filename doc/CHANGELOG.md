@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Align the project shell with the current Cwhip template: configure with
+  explicit source/build paths, preserve the user's prompt behind a colored
+  project/build-type label, and report configuration failures before opening
+  Bash. Retain SDK/cache build-type inheritance and cdbg's `dbg` helper.
 - Migrate application/example value returns and embedded debugger fixtures to
   the Cwhip syntax cleanup in compiler PR #37, including bracket dictionaries.
   Document parenthesized raise arguments, `else(condition)` chains, and the
