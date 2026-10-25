@@ -1,33 +1,38 @@
 #!/usr/bin/env bash
 
-set -euo pipefail
+set -o errexit -o nounset -o pipefail
 
-if [[ -n ${_PROJECT_NAME:-} ]]; then
+if [[ -n "${_PROJECT_NAME:-}" ]]; then
     printf 'A project shell is already active (%s). Exit it before starting another.\n' \
         "$_PROJECT_NAME" >&2
     exit 1
 fi
 
-_PROJECT_LOC=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)
-_PROJECT_NAME=${_PROJECT_LOC##*/}
-_BUILD_TYPE=${1:-default}
-unset CWHIP_BUILD_TYPE
 if (( $# > 1 )); then
     printf 'Usage: %s [debug|release|profile]\n' "$0" >&2
     exit 2
 fi
-if (( $# )); then
-    case "$_BUILD_TYPE" in
-        debug) CWHIP_BUILD_TYPE=Debug ;;
-        release) CWHIP_BUILD_TYPE=Release ;;
-        profile) CWHIP_BUILD_TYPE=RelWithDebInfo ;;
-        *)
-            printf 'Unknown build type: %s (use debug, release or profile)\n' "$_BUILD_TYPE" >&2
-            exit 2
-            ;;
-    esac
-fi
-export _PROJECT_LOC _PROJECT_NAME
+
+build_type="${1:-debug}"
+case "$build_type" in
+    debug)
+        cmake_build_type=Debug
+        ;;
+    release)
+        cmake_build_type=Release
+        ;;
+    profile)
+        cmake_build_type=RelWithDebInfo
+        ;;
+    *)
+        printf 'Unknown build type: %s\nUsage: %s [debug|release|profile]\n' \
+            "$build_type" "$0" >&2
+        exit 2
+        ;;
+esac
+
+project_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
+build_dir="$project_root/build"
 
 if [[ -z "${CWHIP_SDK:-}" ]]; then
     config_home="${XDG_CONFIG_HOME:-}"
@@ -39,17 +44,12 @@ if [[ -z "${CWHIP_SDK:-}" ]]; then
             "$config_home" >&2
         exit 1
     fi
-    sdk_settings="$config_home/cwhip/sdk.toml"
-    legacy_settings="$config_home/cwhip/settings.toml"
-    if [[ -n "$config_home" ]]; then
-        if [[ -e "$sdk_settings" || -L "$sdk_settings" ]]; then
-            selected_settings=$sdk_settings
-        elif [[ -e "$legacy_settings" || -L "$legacy_settings" ]]; then
-            selected_settings=$legacy_settings
-        fi
+    settings="$config_home/cwhip/sdk.toml"
+    if [[ ! -e "$settings" && ! -L "$settings" ]]; then
+        settings="$config_home/cwhip/settings.toml"
     fi
-    if [[ -n ${selected_settings:-} ]]; then
-        if ! sdk_prefix="$(python3 "$_PROJECT_LOC/scripts/sdk-prefix.py" "$selected_settings")"; then
+    if [[ -n "$config_home" && ( -e "$settings" || -L "$settings" ) ]]; then
+        if ! sdk_prefix="$(python3 "$project_root/scripts/sdk-prefix.py" "$settings")"; then
             printf 'SDK settings discovery failed; project shell was not started.\n' >&2
             exit 1
         fi
@@ -59,20 +59,15 @@ if [[ -z "${CWHIP_SDK:-}" ]]; then
     fi
 fi
 
-mkdir -p -- "$_PROJECT_LOC/build"
-cd -- "$_PROJECT_LOC/build"
-if [[ -n ${CWHIP_BUILD_TYPE:-} ]]; then
-    cmake .. "-DCMAKE_BUILD_TYPE=$CWHIP_BUILD_TYPE"
-else
-    cmake ..
-    CWHIP_BUILD_TYPE=$(sed -n 's/^CMAKE_BUILD_TYPE:[^=]*=//p' CMakeCache.txt | head -n 1)
-    case "$CWHIP_BUILD_TYPE" in
-        Debug) _BUILD_TYPE=debug ;;
-        Release) _BUILD_TYPE=release ;;
-        RelWithDebInfo) _BUILD_TYPE=profile ;;
-        "") _BUILD_TYPE=default ;;
-        *) _BUILD_TYPE=$CWHIP_BUILD_TYPE ;;
-    esac
+export _PROJECT_LOC="$project_root"
+export _PROJECT_NAME="$(basename -- "$project_root")"
+export _BUILD_TYPE="$build_type"
+export CWHIP_BUILD_TYPE="$cmake_build_type"
+
+if ! cmake -S "$project_root" -B "$build_dir" \
+    -DCMAKE_BUILD_TYPE="$cmake_build_type"; then
+    printf 'CMake configuration failed; project shell was not started.\n' >&2
+    exit 1
 fi
-export _BUILD_TYPE CWHIP_BUILD_TYPE
-exec bash --rcfile "$_PROJECT_LOC/.project_env" -i
+
+bash --rcfile "$project_root/.project_env" -i
