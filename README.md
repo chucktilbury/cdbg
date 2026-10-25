@@ -8,7 +8,7 @@ representations.
 
 This repository is independently buildable against an installed Cwhip SDK; it
 does not require a Cwhip compiler checkout. See [BUILD.md](doc/BUILD.md) for
-standalone configure, build, test, clean and install instructions, and read the
+setup, build, test, clean and install instructions, and read the
 [cdbg guide](CDBG.md) for controls and behavior.
 
 ## Project environment
@@ -19,8 +19,8 @@ it does not depend on or embed a template checkout.
 
 ```sh
 export CWHIP_SDK=/path/to/installed/cwhip-sdk
-./scripts/setup                 # SDK defaults; accepts debug/release/profile
-cmake --build . --target cdbg   # the new shell starts in build/
+./scripts/setup --clean         # optionally add debug, release or profile
+build cdbg                      # the new shell starts in build/
 cdbg ../examples/debugger.cw
 exit                           # return to the original shell
 ```
@@ -33,7 +33,7 @@ the project's `bin/` and `scripts/` to PATH,
 and prefixes your existing prompt with a colored `project(build-type):` label.
 It never downloads dependencies,
 changes Git state or writes your shell configuration. Both setup and direct
-CMake configuration select a non-empty `CWHIP_SDK` first, then the top-level
+configuration select a non-empty `CWHIP_SDK` first, then the top-level
 TOML `sdk_prefix` in `$XDG_CONFIG_HOME/cwhip/sdk.toml` (or
 `$HOME/.config/cwhip/sdk.toml` when XDG_CONFIG_HOME is unset/empty), then
 ordinary CMake discovery. The legacy `settings.toml` is consulted only if
@@ -53,7 +53,8 @@ arbitrary CMake flags, and cdbg does not write the SDK settings file.
 Executables default to root `bin/`, native libraries to root `lib/`, and
 intermediate files to `build/`; output directories are created during the build,
 not configuration. All are ignored. See [BUILD.md](doc/BUILD.md) for output
-overrides, shell helpers and direct CMake commands.
+overrides, the `build`, `rebuild` and `clean` commands, and the few cases that
+need direct CMake commands.
 
 ## Source
 
