@@ -130,7 +130,8 @@ launched in cdbg's current working directory.
 ## Controls and inspection
 
 1. Load an executable (or start cdbg with a source/executable). Click a source
-   line and choose **Breakpoint > Set/Clear Breakpoint** (F9). This sets a
+   line (gutter or text) to select it, then **Breakpoint > Set/Clear Breakpoint**
+   (F9) — or click the gutter line number area and press F9. This sets a
    breakpoint when none exists there, otherwise clears its breakpoint(s).
    **Breakpoint > Enable/Disable Breakpoint** (Ctrl+F9) toggles their enabled
    state; if no breakpoint exists at the line, the status says so.
@@ -158,14 +159,17 @@ launched in cdbg's current working directory.
    GDB's resolved locations, including multiple locations, and remain in sync
    when tabs close/reopen. Restart preserves them; a fresh load restores the
    chosen target's saved locations and enabled states.
-2. **Run / Continue**, **Step Into**, **Step Over**, **Step Out** and **Pause**
-   use GDB's run/continue/step/next/finish/interrupt commands. Controls reflect
-   running versus stopped state. **File > Load Executable…** ends the old GDB
-   process group and starts a fresh session. **Restart** stops the current inferior
-   and runs the already loaded executable from the beginning, preserving
-   breakpoints, watches and arguments. It works while running, stopped or after
-   exit; it does not recompile source. Restart cdbg with the `.cw` path, or load
-   a rebuilt executable, after changing the source.
+2. **Run / Continue** (F5), **Step Into** (F11), **Step Over** (F10),
+   **Step Out** (Shift+F11) and **Pause** use GDB's
+   run/continue/step/next/finish/interrupt commands. Controls reflect running
+   versus stopped state. On a Cwhip (`.cw`) session, **Step Into** finishes out
+   of runtime/native frames until the next `.cw` stop (capped; the status notes
+   how many frames were skipped). Pure C sessions keep every stop. **File >
+   Load Executable…** ends the old GDB process group and starts a fresh session.
+   **Restart** stops the current inferior and runs again from the beginning,
+   preserving breakpoints, watches and arguments. When the session target is a
+   `.cw` file, Restart recompiles with `cwhip -g` into the temporary executable
+   first, then relaunches; prebuilt executables restart without rebuilding.
 3. **Debug > Setup…** opens a dialog parented to the main window with
    **Break at start** (on by default for a new configuration), a program
    **Arguments** field, and **Apply** / **Cancel**. Arguments use shell-like
@@ -225,10 +229,12 @@ In Cwhip frames, identified by source-file DWARF and named DWARF types:
   typed or boxed null ranges display as `null`. Range-loop iterators appear as
   their current scalar values in locals and watches. Nested containers are
   bounded to two levels; other tags remain explicitly labeled runtime tags.
-- Other classes show their DWARF type, runtime field count and address with
-  **members unavailable**. The compiler currently emits forward declarations,
-  not member DWARF: the inspector does not invent field offsets. `any`/`type`
-  structures and opaque handles are not decoded.
+- User classes with complete `-g` DWARF members show named fields (bounded by
+  the same child/depth limits as containers), for example
+  `Counter {value: 0}`. Watches such as `worker.value` or nested members use
+  GDB member access. Forward-declared or unreadable types still report
+  **members unavailable**. `any`/`type` structures and opaque handles are not
+  decoded.
 
 The helper uses named runtime struct DWARF, not guessed memory offsets, and
 never calls inferior functions. Missing runtime DWARF, unreadable memory,
@@ -247,8 +253,8 @@ watches explicitly report that the value inspector is unavailable.
 No compiler, ABI or runtime behavior changes are needed for these summaries.
 
 Each Step Into, Step Over or Step Out activation sends one GDB execution
-command, including after browsing a caller. The focused toolbar buttons also
-support GTK keyboard activation; there are no dedicated step-key shortcuts.
+command, including after browsing a caller. Dedicated shortcuts are F5
+(continue), F10 (over), F11 (into) and Shift+F11 (out); toolbar buttons remain.
 Run/Continue and the step buttons stay enabled while the post-stop
 locals/stack/watch refresh is still running: a press discards the queued
 refresh requests, ignores the reply to one already sent, restores frame 0 if a
@@ -257,15 +263,14 @@ be outstanding; a second press before GDB reports `*running`/`*stopped` is not
 sent and the status line says it was ignored.
 The stopped status includes GDB's stop reason and program counter. Consecutive
 stops at the same file/line/function explicitly say **same source line** and
-show the previous PC. A return can legitimately land back on the caller's call
-line, and runtime C code can have multiple instruction positions on one line;
-cdbg does not auto-step past these stops. Step Into may enter runtime checks
-before a Cwhip method, whereas Step Over stays at the current call depth.
+show the previous PC. On Cwhip sessions, Step Into finishes out of non-`.cw`
+frames until a Cwhip stop (status notes skipped runtime frames). Step Over
+stays at the current call depth. Pure C sessions keep every stop.
 
-Use freshly compiled `-g` targets: the compiler now avoids no-op dispatch
-thunks and tail-transfers receiver-adjustment thunks, so method returns do not
-land in anonymous dispatch frames with missing GDB function bounds. Restart
-alone does not rebuild an already loaded executable.
+Use freshly compiled `-g` targets: the compiler avoids no-op dispatch thunks
+and emits complete class member DWARF for user types. Restart of a `.cw`
+session recompiles before relaunching; Restart of a prebuilt executable does
+not rebuild.
 
 There are no breakpoint/watch/frame entry rows or End Session button in the
 main window. **Quit** (or closing the window) stops GDB and its owned inferior,
@@ -293,8 +298,9 @@ Right-click **Program Output** for **Clear**, **Copy** (the current selection)
 and **Copy All**. Clear only discards the displayed history: the program keeps
 running and later output is appended. Right-clicking inside a selection keeps
 it, and normal keyboard selection/Ctrl+C copy remains available.
-Watch expressions persist in memory between loads but not across application
-restarts. GDB command/result records use numeric correlation tokens, a bounded
+Watch expressions for the current target are persisted in `.cdbg.toml` with
+breakpoints and restored on load. GDB command/result records use numeric
+correlation tokens, a bounded
 queue and a structured parser for nested tuples/lists and C-string escapes;
 paths and expressions are MI-quoted rather than executed through a shell.
 The GUI polls the async process with a bounded 10 ms wait, processing up to 64
@@ -304,7 +310,8 @@ record to 1 MiB.
 ## Saved settings
 
 Settings live in `.cdbg.toml` in the directory cdbg runs in (the debugger and
-inferior working directory), so each project keeps its own breakpoints:
+inferior working directory), so each project keeps its own breakpoints and
+watches:
 
 ```toml
 version = 1
@@ -321,6 +328,9 @@ arguments = "one 'two words' ''"
 points = [
 { file = "/abs/path/program.cw", line = 4, enabled = true },
 ]
+watches = [
+{ expression = "worker.value" },
+]
 ```
 
 Target tables are keyed by canonical executable path; for `cdbg file.cw` the
@@ -328,8 +338,8 @@ key is the canonical source path, never the temporary compiled executable.
 Symlink aliases share a key. Resolved locations are saved as file:line entries;
 multi-location groups are restored as individual file:line breakpoints rather
 than recreating a function breakpoint. A target's `break_at_start` and
-`arguments` are written only after Setup is applied for it. Watches remain
-memory-only.
+`arguments` are written only after Setup is applied for it. Watch expressions
+are saved with the target whenever they change.
 
 Earlier versions used a global `$XDG_CONFIG_HOME/cdbg/state.toml` (or
 `~/.config/cdbg/state.toml`). That file is now neither read nor modified, so
@@ -368,14 +378,27 @@ must be paused/ended. The stack view is capped at 31 frames. Watches use the
 read-only subset of GDB expressions described above; calls and mutations are
 rejected and inferior function calls are disabled in the session.
 
-Cwhip's current DWARF exposes scalar locals/arguments and pointer-backed class
-values; it does not yet describe full class member layouts. cdbg provides the
-bounded String/container/class summaries described above, not an expandable
-Cwhip object tree. Step Into may enter compiler/runtime
-helpers; use Step Out or file:line breakpoints to return to source. LLDB/DAP and
-richer Cwhip object inspection are follow-up work, not implemented features.
-Gutter-click breakpoint toggles remain future work. The Breakpoint menu,
-Watches context dialog, tab borders and source-tab close icons are implemented.
+cdbg provides bounded String/container/class field summaries, not an expandable
+object tree. Watch expressions and breakpoints for the current target are
+persisted in `.cdbg.toml`. Watches and Breakpoints tabs have context menus for
+add/delete and enable/disable/delete. LLDB, DAP, remote/attach, inferior stdin,
+register/disassembly views and embedding into cedit remain deferred.
+
+## Debug a Cwhip app (walkthrough)
+
+```sh
+cdbg app.cw
+```
+
+1. Wait for compile/`Loaded`, then click a source line and press F9 to set a
+   breakpoint.
+2. Press F5 (**Run / Continue**). When stopped, Locals shows scalars, Strings,
+   containers and class fields from DWARF.
+3. Press F11 (**Step Into**) on a method call — the stop should be the callee's
+   first `.cw` line, not `RuntimeGc.c`.
+4. Right-click Watches → **Add Watch…**, enter `self.x` or `obj.child.count`.
+5. Read stdout on the **Program Output** tab; use **Restart** after editing
+   `app.cw` to rebuild and relaunch.
 
 ## Checks
 
