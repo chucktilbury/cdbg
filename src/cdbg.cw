@@ -425,8 +425,8 @@ class Cdbg {
             file = System.File(path, "rb")
             String magic = file.read(4)
             file.close()
-            return (magic.length == 4 && magic.byteAt(0) == 127u && magic.byteAt(1) == 69u &&
-                magic.byteAt(2) == 76u && magic.byteAt(3) == 70u)
+            return (magic.length == 4 && magic[0] == 127u && magic[1] == 69u &&
+                magic[2] == 76u && magic[3] == 70u)
         } except(Exception) {
             if (file != null && file.isOpen()) { file.close() }
         }
@@ -510,11 +510,11 @@ class Cdbg {
     }
     int64 stateNumber(String key, int64 fallback, int64 minimum, int64 maximum) {
         String raw = Gtk.Config().value(stateText, "", key)
-        if (!raw.startsWith("i") || raw.length > 8 || !identifier(raw.slice(1, raw.length))) {
+        if (!raw.startsWith("i") || raw.length > 8 || !identifier(byteSpan(raw, 1, raw.length))) {
             if (!raw.equals("")) { stateDiagnostic(format("Invalid {}; using default", key)) }
             return(fallback)
         }
-        int64 value = raw.slice(1, raw.length).toInt64()
+        int64 value = byteSpan(raw, 1, raw.length).toInt64()
         if (value < minimum) { return(minimum) }
         if (value > maximum) { return(maximum) }
         return(value)
@@ -596,9 +596,9 @@ class Cdbg {
         String saved = Gtk.Config().value(stateText, stateTarget, "arguments")
         if (saved.startsWith("s")) {
             ArgumentList parsed = ArgumentList()
-            if (parsed.parse(saved.slice(1, saved.length))) {
+            if (parsed.parse(byteSpan(saved, 1, saved.length))) {
                 arguments = parsed.values
-                argumentText = saved.slice(1, saved.length)
+                argumentText = byteSpan(saved, 1, saved.length)
                 targetSettings = true
             } else { stateDiagnostic(format("Invalid saved arguments ({}); ignored", parsed.error)) }
         } else { if (!saved.equals("")) { stateDiagnostic("Saved arguments must be a string; ignored") } }
@@ -694,12 +694,12 @@ class Cdbg {
                 String line = Gtk.Config().item(stateText, stateTarget, "points", i, "line")
                 String enabled = Gtk.Config().item(stateText, stateTarget, "points", i, "enabled")
                 if (!file.startsWith("s") || !line.startsWith("i") || line.length > 8 ||
-                    !identifier(line.slice(1, line.length)) || line.slice(1, line.length).toInt64() < 1 ||
+                    !identifier(byteSpan(line, 1, line.length)) || byteSpan(line, 1, line.length).toInt64() < 1 ||
                     (!enabled.equals("btrue") && !enabled.equals("bfalse"))) {
                     stateDiagnostic(format("Invalid saved breakpoint {}; skipped", i + 1))
                 } else {
-                    file = file.slice(1, file.length)
-                    line = line.slice(1, line.length)
+                    file = byteSpan(file, 1, file.length)
+                    line = byteSpan(line, 1, line.length)
                     if (!System.FileSystem().isFile(file)) {
                         stateDiagnostic(format("Stale breakpoint {}:{}; skipped", file, line))
                     } else {
@@ -720,9 +720,9 @@ class Cdbg {
         previous.append(text)
         if (previous.length <= 65536) { return(previous) }
         int64 first = previous.length - 65536
-        while (first < previous.length && previous.byteAt(first) >= 128u &&
-            previous.byteAt(first) <= 191u) { first = first + 1 }
-        return(previous.slice(first, previous.length))
+        while (first < previous.length && previous[first] >= 128u &&
+            previous[first] <= 191u) { first = first + 1 }
+        return(byteSpan(previous, first, previous.length))
     }
     void log(String text) {
         console.setText(outputHistory(console.text(), text))
@@ -1159,7 +1159,7 @@ class Cdbg {
         if (text.equals("")) { return(false) }
         int64 i = 0
         while (i < text.length) {
-            if (int64(text.byteAt(i)) < 48 || int64(text.byteAt(i)) > 57) { return(false) }
+            if (int64(text[i]) < 48 || int64(text[i]) > 57) { return(false) }
             i = i + 1
         }
         return(true)
@@ -1815,7 +1815,7 @@ class Cdbg {
         controls()
     }
     void record(String line) {
-        if (line.endsWith("\r")) { line = line.slice(0, line.length - 1) }
+        if (line.endsWith("\r")) { line = byteSpan(line, 0, line.length - 1) }
         if (line.equals("") || line.trim().equals("(gdb)")) { return }
         MiParser parsed = MiParser()
         parsed.parse(line)
@@ -1907,8 +1907,8 @@ class Cdbg {
         }
         int64 newline = pending.find("\n")
         while (newline >= 0) {
-            String line = pending.slice(0, newline)
-            pending = pending.slice(newline + 1, pending.length)
+            String line = byteSpan(pending, 0, newline)
+            pending = byteSpan(pending, newline + 1, pending.length)
             record(line)
             newline = pending.find("\n")
         }
@@ -1990,6 +1990,20 @@ class Cdbg {
             else { event = null }
         }
         if (process != null && !closed) { pollToken = Gtk.Application().post(_self().poll) }
+    }
+
+    int64 byteSpanBound(int64 value, int64 length) {
+        int64 index = value
+        if (index < 0) { index = index + length }
+        if (index < 0) { return(0) }
+        if (index > length) { return(length) }
+        return(index)
+    }
+    String byteSpan(String text, int64 first, int64 last) {
+        int64 lower = byteSpanBound(first, text.length)
+        int64 end = byteSpanBound(last, text.length)
+        if (end <= lower) { return("") }
+        return(text[lower..(end - 1)])
     }
 }
 

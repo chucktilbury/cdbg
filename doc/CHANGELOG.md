@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Read MI and source bytes with `text[index]` and copy half-open spans through
+  an inclusive range. `String.byteAt` and `String.slice` are no longer SDK
+  methods. Empty spans, including a stripped CR and a prefix-only token, stay
+  empty.
+- Read a `String` in the value printer from its own `data` and `length`.
+  String storage is no longer a nested buffer named `bytes`.
 - Align the project shell with the current Cwhip template: configure with
   explicit source/build paths, preserve the user's prompt behind a colored
   project/build-type label, and report configuration failures before opening
