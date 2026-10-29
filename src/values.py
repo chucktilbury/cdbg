@@ -122,11 +122,10 @@ def string(value):
     if object_name(value) != "String":
         return "<invalid String runtime type>"
     obj = runtime_object(value, "CwhipStringObject")
-    buf = runtime_object(obj["bytes"], "CwhipBuffer")
-    length = int(buf["length"])
-    if length < 0 or length > int(buf["capacity"]):
-        return "<invalid String buffer>"
-    result = quoted(read_bytes(buf["data"], length))
+    length = int(obj["length"])
+    if length < 0 or length > int(obj["capacity"]):
+        return "<invalid String storage>"
+    result = quoted(read_bytes(obj["data"], length))
     return result + (" … <truncated; {} bytes>".format(length) if length > LIMIT else "")
 
 

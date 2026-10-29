@@ -31,7 +31,7 @@ class MiParser {
 
     String character() {
         if (offset >= input.length) { return("") }
-        return(input.slice(offset, offset + 1))
+        return(byteSpan(input, offset, offset + 1))
     }
     bool take(String expected) {
         if (!character().equals(expected)) { valid = false
@@ -40,7 +40,7 @@ class MiParser {
         return(true)
     }
     bool digit(String value) {
-        return(value.length == 1 && int64(value.byteAt(0)) >= 48 && int64(value.byteAt(0)) <= 57)
+        return(value.length == 1 && int64(value[0]) >= 48 && int64(value[0]) <= 57)
     }
     String word() {
         int64 first = offset
@@ -48,25 +48,25 @@ class MiParser {
                !character().equals(",") && !character().equals("}") &&
                !character().equals("]")) { offset = offset + 1 }
         if (first == offset) { valid = false }
-        return(input.slice(first, offset))
+        return(byteSpan(input, first, offset))
     }
     String quoted() {
         buffer bytes = buffer[]
         if (!take("\"")) { return("") }
         while (offset < input.length && !character().equals("\"") && valid) {
-            int64 byte = int64(input.byteAt(offset))
+            int64 byte = int64(input[offset])
             offset = offset + 1
             if (byte == 92) {
                 if (offset >= input.length) { valid = false
                     return("") }
-                byte = int64(input.byteAt(offset))
+                byte = int64(input[offset])
                 offset = offset + 1
                 if (byte >= 48 && byte <= 55) {
                     int64 number = byte - 48
                     int64 count = 1
                     while (count < 3 && offset < input.length &&
-                           int64(input.byteAt(offset)) >= 48 && int64(input.byteAt(offset)) <= 55) {
-                        number = number * 8 + int64(input.byteAt(offset)) - 48
+                           int64(input[offset]) >= 48 && int64(input[offset]) <= 55) {
+                        number = number * 8 + int64(input[offset]) - 48
                         offset = offset + 1
                         count = count + 1
                     }
@@ -76,7 +76,7 @@ class MiParser {
                 } else {
                     String escapes = "nrtbfv\\\"'"
                     list replacements = [10, 13, 9, 8, 12, 11, 92, 34, 39]
-                    int64 index = escapes.find(input.slice(offset - 1, offset))
+                    int64 index = escapes.find(byteSpan(input, offset - 1, offset))
                     if (index < 0) { valid = false
                         return("") }
                     byte = int64(replacements[index] as int8)
@@ -171,6 +171,20 @@ class MiParser {
         return(format("\"{}\"", text.replace("\\", "\\\\").replace("\"", "\\\"")
             .replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t")))
     }
+
+    int64 byteSpanBound(int64 value, int64 length) {
+        int64 index = value
+        if (index < 0) { index = index + length }
+        if (index < 0) { return(0) }
+        if (index > length) { return(length) }
+        return(index)
+    }
+    String byteSpan(String text, int64 first, int64 last) {
+        int64 lower = byteSpanBound(first, text.length)
+        int64 end = byteSpanBound(last, text.length)
+        if (end <= lower) { return("") }
+        return(text[lower..(end - 1)])
+    }
 }
 
 // Shell-like inferior argument parsing without invoking a shell: blanks
@@ -198,16 +212,16 @@ class ArgumentList {
         int64 quote = 0
         int64 i = 0
         while (i < text.length) {
-            int64 c = int64(text.byteAt(i))
+            int64 c = int64(text[i])
             i = i + 1
             if (quote == 39) {
                 if (c == 39) { quote = 0 } else { current.append(uint64(c)) }
             } else { if (quote == 34) {
                 if (c == 34) { quote = 0 } else {
-                    if (c == 92 && i < text.length && (int64(text.byteAt(i)) == 34 ||
-                        int64(text.byteAt(i)) == 92 || int64(text.byteAt(i)) == 36 ||
-                        int64(text.byteAt(i)) == 96)) {
-                        current.append(text.byteAt(i))
+                    if (c == 92 && i < text.length && (int64(text[i]) == 34 ||
+                        int64(text[i]) == 92 || int64(text[i]) == 36 ||
+                        int64(text[i]) == 96)) {
+                        current.append(text[i])
                         i = i + 1
                     } else { current.append(uint64(c)) }
                 }
@@ -224,7 +238,7 @@ class ArgumentList {
                             values = []
                             return(false)
                         }
-                        current.append(text.byteAt(i))
+                        current.append(text[i])
                         i = i + 1
                     } else { current.append(uint64(c)) } }
                 }

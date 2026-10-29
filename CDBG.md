@@ -213,7 +213,9 @@ In Cwhip frames, identified by source-file DWARF and named DWARF types:
   null object references show `null`. Small integers display as decimal
   numbers, not character literals; Runtime Values retains GDB's raw formatting.
 - `String` shows quoted UTF-8 contents with escaped quotes, backslashes and
-  control characters, including embedded NUL. Invalid UTF-8 bytes are escaped.
+  control characters, including embedded NUL. Those bytes are the string
+  object's own `data` and `length`, not a nested buffer. Invalid UTF-8 bytes
+  are escaped.
 - `list` and `dict` show their length and up to eight entries; `buffer` shows
   its length and up to 256 bytes in hexadecimal. Runtime-tagged
   signed/unsigned integers of all four widths, fp32/fp64, boolean and String

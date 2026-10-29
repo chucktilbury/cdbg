@@ -6,7 +6,9 @@ and does not read from or build a compiler workspace checkout.
 ## Requirements
 
 - CMake 3.24 or newer, a C compiler, Python 3.11 or newer and `pkg-config`
-- An installed Cwhip SDK version `0.0.2`, ABI `numeric-v2`, with GTK,
+- An installed Cwhip SDK version `0.0.2`, ABI `numeric-v2`, whose strings are
+  indexed with `text[index]` (`uint8`) and have no `String.byteAt` or
+  `String.slice` methods, with GTK,
   GtkSourceView, application output-directory and application-defaults support
   enabled
 - GTK 4.10 or newer and GtkSourceView 5 development files
