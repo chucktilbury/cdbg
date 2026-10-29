@@ -110,6 +110,19 @@ class Cdbg {
     list stackFrames
     int64 selectedFrame
     bool executing
+    int64 skipRuntimeLeft
+    int64 skippedRuntimeFrames
+    String skipOrigin
+    bool rebuildPendingRun
+    bool rebuildBreakAtStart
+    bool preferCwhipStops
+    list pendingWatchRestore
+    int64 selectedWatch
+    int64 deleteWatchItem
+    int64 disableBreakItem
+    int64 enableBreakItem
+    int64 deleteBreakItem
+    Gtk.ContextMenu breakMenu
     Gtk.Label status
     GtkSource.View source
     Gtk.Notebook sourceTabs
@@ -185,6 +198,18 @@ class Cdbg {
         runHits = []
         stateError = ""
         stateNote = ""
+        skipRuntimeLeft = 0
+        skippedRuntimeFrames = 0
+        skipOrigin = ""
+        rebuildPendingRun = false
+        rebuildBreakAtStart = true
+        preferCwhipStops = false
+        pendingWatchRestore = []
+        selectedWatch = -1
+        deleteWatchItem = 0
+        disableBreakItem = 0
+        enableBreakItem = 0
+        deleteBreakItem = 0
     }
     Gtk.Button button(Gtk.Box row, String title, void<> action) {
         Gtk.Button item = Gtk.Button(title)
@@ -232,8 +257,12 @@ class Cdbg {
         setupItem = menu.addItem(debugMenu, "Setup...", _self().showSetup)
         window.bindShortcut("<Control>q", _self().quit)
         window.bindShortcut("<Control>f", _self().showFind)
+        window.bindShortcut("F5", _self().resume)
         window.bindShortcut("F9", _self().toggleBreakpoint)
         window.bindShortcut("<Control>F9", _self().toggleEnabled)
+        window.bindShortcut("F10", _self().stepOver)
+        window.bindShortcut("F11", _self().stepInto)
+        window.bindShortcut("<Shift>F11", _self().stepOut)
         findWindow = Gtk.TransientWindow("Find")
         findWindow.setDefaultSize(420, 100)
         findWindow.setTransientFor(window)
@@ -286,10 +315,15 @@ class Cdbg {
         stack.onLineActivated(_self().stackClicked)
         breaks.setLineSelection(true)
         breaks.onLineActivated(_self().breakpointClicked)
+        breakMenu = Gtk.ContextMenu(breaks.widget())
+        disableBreakItem = breakMenu.addItem("Disable Breakpoint", _self().disableSelectedBreakpoint)
+        enableBreakItem = breakMenu.addItem("Enable Breakpoint", _self().enableSelectedBreakpoint)
+        deleteBreakItem = breakMenu.addItem("Delete Breakpoint", _self().deleteSelectedBreakpoint)
+        watches.setLineSelection(true)
+        watches.onLineActivated(_self().watchClicked)
         watchMenu = Gtk.ContextMenu(watches.widget())
-        Gtk.Box watchActions = Gtk.Box(Gtk.Box.VERTICAL, 0)
-        watchMenu.setChild(watchActions)
-        button(watchActions, "Add Watch...", _self().showWatch)
+        watchMenu.addItem("Add Watch...", _self().showWatch)
+        deleteWatchItem = watchMenu.addItem("Delete Watch", _self().deleteSelectedWatch)
         watchWindow = Gtk.TransientWindow("Add Watch")
         watchWindow.setTransientFor(window)
         watchWindow.setDefaultSize(420, 100)
@@ -309,11 +343,9 @@ class Cdbg {
         console = pane()
         programOutput = pane()
         outputMenu = Gtk.ContextMenu(programOutput.widget())
-        Gtk.Box outputActions = Gtk.Box(Gtk.Box.VERTICAL, 0)
-        outputMenu.setChild(outputActions)
-        button(outputActions, "Clear", _self().clearOutput)
-        button(outputActions, "Copy", _self().copyOutput)
-        button(outputActions, "Copy All", _self().copyAllOutput)
+        outputMenu.addItem("Clear", _self().clearOutput)
+        outputMenu.addItem("Copy", _self().copyOutput)
+        outputMenu.addItem("Copy All", _self().copyAllOutput)
         setupWindow = Gtk.TransientWindow("Setup")
         setupWindow.setTransientFor(window)
         setupWindow.setDefaultSize(480, 160)
@@ -486,7 +518,13 @@ class Cdbg {
         }
         controls()
     }
-    void sourceLineClicked(int64 line) { controls() }
+    // Primary click selects the source line (gutter and text). Toggle with F9
+    // or Breakpoint > Set/Clear so positioning clicks never clear breakpoints.
+    void sourceLineClicked(int64 line) {
+        DebugSource file = currentSource()
+        if (file != null && line > 0) { file.view.centerCursor(line, 1) }
+        controls()
+    }
     void controls() {
         if (window == null || window.disposed()) { return }
         bool ready = loaded && !running && !executing && active == null && requests.length == 0
@@ -658,6 +696,14 @@ class Cdbg {
                 i = i + 1
             }
             updates.append("]\n")
+            updates.append("watches = [\n")
+            i = 0
+            while (i < expressions.length && i < 64) {
+                updates.append(format("{{ expression = {} }},\n",
+                    Gtk.Config().quote(expressions[i] as String)))
+                i = i + 1
+            }
+            updates.append("]\n")
         }
         String text = Gtk.Config().merge(stateText, updates)
         if (text.equals("") || text.length > 262144) {
@@ -715,6 +761,47 @@ class Cdbg {
         }
         if (restorePending == 0) { restoringBreakpoints = false }
         requestBreakpoints()
+    }
+    void restoreWatches() {
+        if (pendingWatchRestore.length > 0) {
+            expressions = pendingWatchRestore
+            pendingWatchRestore = []
+            return
+        }
+        String kind = Gtk.Config().value(stateText, stateTarget, "watches")
+        int64 count = Gtk.Config().arraySize(stateText, stateTarget, "watches")
+        if (!kind.equals("") && count < 0) {
+            stateDiagnostic("Saved watches must be an array; skipped")
+            return
+        }
+        if (count <= 0) { return }
+        list restored = []
+        int64 i = 0
+        while (i < count && i < 64) {
+            String expression = Gtk.Config().item(stateText, stateTarget, "watches", i, "expression")
+            if (!expression.startsWith("s") || expression.length > 4097) {
+                stateDiagnostic(format("Invalid saved watch {}; skipped", i + 1))
+            } else {
+                expression = byteSpan(expression, 1, expression.length).trim()
+                if (!expression.equals("")) {
+                    bool duplicate = false
+                    int64 j = 0
+                    while (j < restored.length) {
+                        if ((restored[j] as String).equals(expression)) { duplicate = true }
+                        j = j + 1
+                    }
+                    if (!duplicate) { restored.append(expression) }
+                }
+            }
+            i = i + 1
+        }
+        expressions = restored
+    }
+    void maybeRebuildRun() {
+        if (!rebuildPendingRun || restoringBreakpoints || restorePending > 0) { return }
+        rebuildPendingRun = false
+        status.setText("Rebuilt; restarting inferior")
+        startRun()
     }
     String outputHistory(String previous, String text) {
         previous.append(text)
@@ -900,6 +987,10 @@ class Cdbg {
         hasRun = false
         restarting = false
         executing = false
+        skipRuntimeLeft = 0
+        skippedRuntimeFrames = 0
+        skipOrigin = ""
+        preferCwhipStops = false
         valueInspector = false
         selectedFrame = 0
         stopDetail = ""
@@ -935,7 +1026,7 @@ class Cdbg {
         endSession()
         stateTarget = System.FileSystem().absolutePath(targetPath)
         failure = ""
-        stopCount = 0
+        if (!rebuildPendingRun) { stopCount = 0 }
         inferiorPid = ""
         location = ""
         executable = System.FileSystem().absolutePath(targetPath)
@@ -945,12 +1036,15 @@ class Cdbg {
         output = Process.OutputDecoder()
         errors = Process.OutputDecoder()
         pending = ""
-        console.setText("")
+        // Rebuild-on-Restart keeps the Debugger Console so start-breakpoint
+        // and other session notes accumulate across recompiles.
+        if (!rebuildPendingRun) { console.setText("") }
         if (!stateWritable) { log("State file is invalid/unreadable; defaults in use, saving disabled\n") }
         if (!stateNote.equals("")) { log(stateNote) }
         if (!stateError.equals("")) { log(format("Settings not saved to {}: {}\n", statePath, stateError)) }
         loadTargetSettings()
-        programOutput.setText("")
+        if (rebuildPendingRun) { breakAtStart = rebuildBreakAtStart }
+        if (!rebuildPendingRun) { programOutput.setText("") }
         locals.setText("")
         stack.setText("")
         watches.setText("")
@@ -1068,6 +1162,7 @@ class Cdbg {
         }
         if (executing) { ignored("Run ignored: the previous execution command is still pending")
             return }
+        skipRuntimeLeft = 0
         if (hasRun) { execute("-exec-continue", "Continue") }
         else {
             executing = true
@@ -1105,9 +1200,34 @@ class Cdbg {
             fail("Wait for GDB to be ready before restarting")
             return
         }
+        if (targetPath.endsWith(".cw")) {
+            restartWithRebuild()
+            return
+        }
+        skipRuntimeLeft = 0
         restarting = true
         if (running) { enqueue("-exec-interrupt", "restart-interrupt", "") }
         else { restartStopped() }
+        controls()
+    }
+    // Recompile a .cw target, reopen GDB on the new image, then run again.
+    void restartWithRebuild() {
+        list kept = []
+        int64 i = 0
+        while (i < expressions.length) {
+            kept.append(expressions[i] as String)
+            i = i + 1
+        }
+        String path = targetPath
+        bool keepBreak = breakAtStart
+        saveState(false)
+        endSession()
+        pendingWatchRestore = kept
+        expressions = kept
+        rebuildPendingRun = true
+        rebuildBreakAtStart = keepBreak
+        targetPath = path
+        launch()
         controls()
     }
     void restartStopped() {
@@ -1147,9 +1267,61 @@ class Cdbg {
         } else { enqueue(command, "execute", "") }
         controls()
     }
-    void stepInto() { if (stopped()) { execute("-exec-step", "Step Into") } }
-    void stepOver() { if (stopped()) { execute("-exec-next", "Step Over") } }
-    void stepOut() { if (stopped()) { execute("-exec-finish", "Step Out") } }
+    void stepInto() {
+        if (stopped()) {
+            skipRuntimeLeft = 32
+            skippedRuntimeFrames = 0
+            skipOrigin = stopPosition
+            execute("-exec-step", "Step Into")
+        }
+    }
+    void stepOver() {
+        skipRuntimeLeft = 0
+        skipOrigin = ""
+        if (stopped()) { execute("-exec-next", "Step Over") }
+    }
+    void stepOut() {
+        skipRuntimeLeft = 0
+        skipOrigin = ""
+        if (stopped()) { execute("-exec-finish", "Step Out") }
+    }
+    bool cwhipFrame(String path) {
+        return(path.endsWith(".cw"))
+    }
+    // After Step Into on a Cwhip app, finish out of runtime frames and step
+    // again when finish returns to the original call site, until a different
+    // .cw stop (typically the callee). Pure C sessions keep every stop.
+    bool skipRuntimeStop(String path, String position, String reason) {
+        if (skipRuntimeLeft <= 0 || !preferCwhipStops) { return(false) }
+        if (reason.startsWith("exited") || reason.equals("breakpoint-hit") ||
+            reason.equals("watchpoint-trigger") || reason.equals("read-watchpoint-trigger") ||
+            reason.equals("access-watchpoint-trigger") || reason.equals("signal-received")) {
+            skipRuntimeLeft = 0
+            skipOrigin = ""
+            return(false)
+        }
+        bool atOrigin = !skipOrigin.equals("") && position.equals(skipOrigin)
+        if (cwhipFrame(path) && !atOrigin) {
+            skipRuntimeLeft = 0
+            skipOrigin = ""
+            return(false)
+        }
+        if (cwhipFrame(path) && atOrigin) {
+            // Finish bounced back to the call site; step in again.
+            skipRuntimeLeft = skipRuntimeLeft - 1
+            skippedRuntimeFrames = skippedRuntimeFrames + 1
+            executing = true
+            enqueue("-exec-step", "execute", "")
+            controls()
+            return(true)
+        }
+        skipRuntimeLeft = skipRuntimeLeft - 1
+        skippedRuntimeFrames = skippedRuntimeFrames + 1
+        executing = true
+        enqueue("-exec-finish", "execute", "")
+        controls()
+        return(true)
+    }
     void interrupt() {
         if (!loaded || !running) { fail("No running target to pause")
             return }
@@ -1212,7 +1384,64 @@ class Cdbg {
         }
         return(ids)
     }
-    void breakpointClicked(int64 line) {}
+    void breakpointClicked(int64 line) {
+        selectedWatch = -1
+        controls()
+    }
+    void watchClicked(int64 line) {
+        selectedWatch = line - 1
+        controls()
+    }
+    void deleteSelectedWatch() {
+        if (selectedWatch < 0 || selectedWatch >= expressions.length) {
+            status.setText("Select a watch to delete")
+            return
+        }
+        list kept = []
+        int64 i = 0
+        while (i < expressions.length) {
+            if (i != selectedWatch) { kept.append(expressions[i] as String) }
+            i = i + 1
+        }
+        expressions = kept
+        selectedWatch = -1
+        saveState(false)
+        if (loaded && !running && hasRun) { refresh() }
+        else { watches.setText("Watches will be evaluated at the next stop") }
+    }
+    String selectedBreakpointNumber() {
+        int64 row = breaks.line() - 1
+        if (row < 0 || row >= breakpointRows.length) { return("") }
+        return(breakpointRows[row] as String)
+    }
+    void disableSelectedBreakpoint() {
+        String number = selectedBreakpointNumber()
+        if (number.equals("") || !identifier(number)) {
+            status.setText("Select a breakpoint to disable")
+            return
+        }
+        if (!breakpointReady()) { return }
+        enqueue(format("-break-disable {}", number), "break", "")
+        requestBreakpoints()
+    }
+    void enableSelectedBreakpoint() {
+        String number = selectedBreakpointNumber()
+        if (number.equals("") || !identifier(number)) {
+            status.setText("Select a breakpoint to enable")
+            return
+        }
+        if (!breakpointReady()) { return }
+        enqueue(format("-break-enable {}", number), "break", "")
+        requestBreakpoints()
+    }
+    void deleteSelectedBreakpoint() {
+        String number = selectedBreakpointNumber()
+        if (number.equals("") || !identifier(number)) {
+            status.setText("Select a breakpoint to delete")
+            return
+        }
+        deleteBreakpoint(number)
+    }
     bool breakpointReady() {
         if (!loaded || running || active != null || requests.length > 0 || currentSource() == null) {
             status.setText("Load a target, pause it, and select a source file before changing breakpoints")
@@ -1442,6 +1671,7 @@ class Cdbg {
             i = i + 1
         }
         expressions.append(expression)
+        saveState(false)
         if (loaded && !running && hasRun) { refresh() }
         else { watches.setText("Watches will be evaluated at the next stop") }
         return(true)
@@ -1573,6 +1803,7 @@ class Cdbg {
         source.setText(sourceText)
         sourceText = ""
         source.setLanguage(GtkSource.Content().languageFor(path))
+        source.setLineSelection(true)
         source.onLineActivated(_self().sourceLineClicked)
         Gtk.ScrolledWindow container = scroll(source)
         DebugSource document = DebugSource(path, source, container)
@@ -1624,7 +1855,10 @@ class Cdbg {
                 stateDiagnostic(format("Could not restore {}: {}; skipped", done.expression,
                     record.data.field("msg").text))
                 restorePending = restorePending - 1
-                if (restorePending == 0) { restoringBreakpoints = false }
+                if (restorePending == 0) {
+                    restoringBreakpoints = false
+                    maybeRebuildRun()
+                }
                 sendNext()
                 controls()
                 return
@@ -1667,11 +1901,16 @@ class Cdbg {
         if (done.purpose.equals("loaded")) {
             loaded = true
             status.setText("Loaded. Add breakpoints, then Run.")
+            restoreWatches()
             restoreBreakpoints()
+            maybeRebuildRun()
         }
         if (done.purpose.equals("restore-break")) {
             restorePending = restorePending - 1
-            if (restorePending == 0) { restoringBreakpoints = false }
+            if (restorePending == 0) {
+                restoringBreakpoints = false
+                maybeRebuildRun()
+            }
         }
         if (done.purpose.equals("sources")) {
             MiValue files = record.data.field("files")
@@ -1682,6 +1921,7 @@ class Cdbg {
                 if (file.field("file").text.endsWith(".cw")) { cwhipSources = true }
                 i = i + 1
             }
+            preferCwhipStops = cwhipSources
             i = 0
             while (i < files.values.length) {
                 MiValue file = files.values[i] as MiValue
@@ -1844,12 +2084,14 @@ class Cdbg {
             executing = false
             String reason = parsed.data.field("reason").text
             if (restarting) {
+                skipRuntimeLeft = 0
                 if (reason.startsWith("exited")) { hasRun = false }
                 restartStopped()
                 controls()
                 return
             }
             if (reason.startsWith("exited")) {
+                skipRuntimeLeft = 0
                 readProgramOutput()
                 hasRun = false
                 locals.setText("Target exited")
@@ -1865,18 +2107,23 @@ class Cdbg {
                 startNumber = ""
                 status.setText(exitText)
             } else {
-                hasRun = true
-                selectedFrame = 0
-                stopCount = stopCount + 1
                 MiValue frame = parsed.data.field("frame")
                 String stopPath = frame.field("fullname").text
                 if (stopPath.equals("")) { stopPath = frame.field("file").text }
                 String position = format("{}:{} ({})", stopPath,
                     frame.field("line").text, frame.field("func").text)
+                if (skipRuntimeStop(stopPath, position, reason)) { return }
+                hasRun = true
+                selectedFrame = 0
+                stopCount = stopCount + 1
                 String address = frame.field("addr").text
                 stopDetail = format("{}; PC {}", reason, address)
                 if (position.equals(stopPosition)) {
                     stopDetail.append(format("; same source line (previous PC {})", stopAddress))
+                }
+                if (skippedRuntimeFrames > 0) {
+                    stopDetail.append(format("; skipped {} runtime frame(s)", skippedRuntimeFrames))
+                    skippedRuntimeFrames = 0
                 }
                 stopPosition = position
                 stopAddress = address

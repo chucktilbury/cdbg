@@ -46,9 +46,64 @@ def object_name(value):
     return name + (" <truncated type name>" if length > LIMIT else "")
 
 
+def dwarf_field_names(struct_type):
+    names = []
+    for field in struct_type.fields():
+        name = field.name or ""
+        if name and not name.startswith("__"):
+            names.append(field)
+    return names
+
+
+def dwarf_fields(pointer_value, depth):
+    """Summarize named Cwhip fields from complete class DWARF; None if unavailable."""
+    if depth >= DEPTH:
+        return "<depth limit>"
+    target = pointer_value.type.strip_typedefs().target()
+    if target.code != gdb.TYPE_CODE_STRUCT:
+        return None
+    fields = dwarf_field_names(target)
+    if not fields:
+        return None
+    try:
+        obj = pointer_value.dereference()
+    except (gdb.error, gdb.GdbError):
+        return None
+    parts = []
+    for field in fields[:CHILDREN]:
+        try:
+            child = obj[field.name]
+            child_type = field.type.strip_typedefs()
+            if child_type.code == gdb.TYPE_CODE_STRUCT:
+                nested = []
+                for subfield in dwarf_field_names(child_type)[:CHILDREN]:
+                    nested.append("{}: {}".format(
+                        subfield.name, friendly(child[subfield.name], True, depth + 1)))
+                if len(dwarf_field_names(child_type)) > CHILDREN:
+                    nested.append("…")
+                parts.append("{}: {{{}}}".format(field.name, ", ".join(nested)))
+            else:
+                parts.append("{}: {}".format(field.name, friendly(child, True, depth + 1)))
+        except (gdb.error, gdb.GdbError, ValueError, OverflowError):
+            parts.append("{}: <unreadable>".format(field.name))
+    if len(fields) > CHILDREN:
+        parts.append("…")
+    return ", ".join(parts)
+
+
 def object_summary(value, name):
     meta = metadata(value)
     actual = object_name(value)
+    display = actual if actual else name
+    typed = value
+    if actual and actual != name:
+        try:
+            typed = value.cast(gdb.lookup_type(actual).pointer())
+        except gdb.error:
+            typed = value
+    fields = dwarf_fields(typed, 0)
+    if fields is not None:
+        return "{} {{{}}}".format(display, fields)
     if actual != name:
         return "<{} reference; runtime type {}; members unavailable>".format(name, actual)
     return "{} <{} fields; members unavailable; {}>".format(
@@ -184,7 +239,6 @@ def friendly(value, cwhip, depth=0):
         return container(value, name, depth)
     if name == "range" or name.startswith("range<"):
         return range_value(value)
-    # Opaque class debug types lack members. Say so instead of guessing fields.
     if typ.target().code == gdb.TYPE_CODE_STRUCT:
         if name in ("handle", "callback"):
             return raw(value) + " <opaque handle>"

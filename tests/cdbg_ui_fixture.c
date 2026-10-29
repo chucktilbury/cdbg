@@ -446,10 +446,53 @@ static GtkTextView *inspector_view(const char *title) {
     return NULL;
 }
 
+/* True when a PopoverMenu GMenuModel contains a labelled item. */
+static bool menu_model_has_label(GtkWidget *menu, const char *label) {
+    if (!GTK_IS_POPOVER_MENU(menu)) return false;
+    GMenuModel *model = gtk_popover_menu_get_menu_model(GTK_POPOVER_MENU(menu));
+    if (!model) return false;
+    gint count = g_menu_model_get_n_items(model);
+    for (gint i = 0; i < count; ++i) {
+        gchar *text = NULL;
+        g_menu_model_get_item_attribute(model, i, G_MENU_ATTRIBUTE_LABEL, "s", &text);
+        bool match = text && strcmp(text, label) == 0;
+        g_free(text);
+        if (match) return true;
+    }
+    return false;
+}
+
+/* Activate a labelled GMenu action on a PopoverMenu (cedit explorer pattern). */
+static bool menu_activate_labeled(GtkWidget *menu, const char *label) {
+    if (!GTK_IS_POPOVER_MENU(menu)) return false;
+    GMenuModel *model = gtk_popover_menu_get_menu_model(GTK_POPOVER_MENU(menu));
+    GActionMap *actions = g_object_get_data(G_OBJECT(menu), "cwhip-actions");
+    if (!model || !actions) return false;
+    gint count = g_menu_model_get_n_items(model);
+    for (gint i = 0; i < count; ++i) {
+        gchar *text = NULL;
+        gchar *action_name = NULL;
+        g_menu_model_get_item_attribute(model, i, G_MENU_ATTRIBUTE_LABEL, "s", &text);
+        g_menu_model_get_item_attribute(model, i, G_MENU_ATTRIBUTE_ACTION, "s", &action_name);
+        bool match = text && action_name && strcmp(text, label) == 0 &&
+                     g_str_has_prefix(action_name, "menu.");
+        if (match) {
+            GAction *action = g_action_map_lookup_action(actions, action_name + 5);
+            if (!action) match = false;
+            else g_action_activate(action, NULL);
+        }
+        g_free(text);
+        g_free(action_name);
+        if (match) return true;
+    }
+    return false;
+}
+
 /* The visible popover holding the labelled item; GtkTextView may own other
    (hidden) popovers once text has been selected. */
 static GtkWidget *menu_popover(GtkWidget *widget, const char *label) {
-    if (GTK_IS_POPOVER(widget) && gtk_widget_get_visible(widget) && button_labeled(widget, label))
+    if (GTK_IS_POPOVER(widget) && gtk_widget_get_visible(widget) &&
+        (button_labeled(widget, label) || menu_model_has_label(widget, label)))
         return widget;
     for (GtkWidget *child = gtk_widget_get_first_child(widget); child;
          child = gtk_widget_get_next_sibling(child)) {
@@ -500,10 +543,15 @@ bool cdbg_fixture_line_click(void *self, void *pane, int64_t line, void *action)
         g_signal_emit_by_name(match, "pressed", 1, (double)x, (double)y);
         if (*label) {
             GtkWidget *popover = menu_popover(GTK_WIDGET(view), label);
-            GtkWidget *item = popover ? button_labeled(popover, label) : NULL;
-            if (item) {
-                g_signal_emit_by_name(item, "clicked");
+            if (popover && menu_activate_labeled(popover, label)) {
+                gtk_popover_popdown(GTK_POPOVER(popover));
                 activated = true;
+            } else {
+                GtkWidget *item = popover ? button_labeled(popover, label) : NULL;
+                if (item) {
+                    g_signal_emit_by_name(item, "clicked");
+                    activated = true;
+                }
             }
         } else activated = true;
         g_object_unref(view);
