@@ -244,6 +244,9 @@ class Cdbg {
             return }
         window = Gtk.Window("cdbg - local GDB prototype")
         window.setDefaultSize(1100, 760)
+        // Menu lives in the content box, not the application menubar; keep F10
+        // for Step Over instead of GTK's default menubar accelerator.
+        window.setMenubarAccel(false)
         window.onCloseRequest(_self().closeRequested)
         Gtk.Box layout = Gtk.Box(Gtk.Box.VERTICAL, 6)
         window.setChild(layout)
