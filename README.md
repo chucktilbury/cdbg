@@ -59,8 +59,11 @@ need direct CMake commands.
 ## Source
 
 - `src/cdbg.cw` — GTK application class, startup, and includes for method modules
-- `src/cdbg*.cw` and `src/debugTypes.cw` — UI, session, execution, breakpoints, and helpers
+- `src/cdbg*.cw`, `src/debugTypes.cw`, `src/commandBinding.cw`, `src/cdbgSettings.cw`,
+  `src/keyboardPreference.cw` — multi-pane layout, preferences, session, execution,
+  breakpoints, and helpers
 - `src/mi.cw` — GDB/MI client/parser
+- Global prefs: `~/.config/cwhip/cdbg.toml`; per-cwd session/layout: `.cdbg.toml`
 - `src/terminal.c` and `src/terminal.cw` — local inferior output PTY
 - `src/values.py` and `src/embed_values.py` — bounded Python-enabled GDB
   value inspector

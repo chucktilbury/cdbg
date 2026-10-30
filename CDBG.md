@@ -36,9 +36,9 @@ addition to version `0.0.2` and ABI `numeric-v2`.
 
 `cdbg [SOURCE.cw|EXECUTABLE [-- ARGS...]]` opens the GUI in the foreground;
 arguments after the target are passed individually to the inferior, without a
-shell. Command-line arguments override the target's saved Setup arguments for
-that command-line session (including Restart) but are not saved; applying Setup
-replaces them, and a later File > Load Executable uses the saved arguments.
+shell. Command-line arguments override the target's saved Session arguments for
+that command-line session (including Restart) but are not saved; applying Session
+Preferences replaces them, and a later File > Load Executable uses the saved arguments.
 A `.cw` command-line target is compiled
 asynchronously using `cwhip -g` to an owned temporary executable. Compilation
 failure summaries appear in a parented modal dialog, the status line, Debugger
@@ -90,7 +90,7 @@ the full current compilation output is also retained in the session's compiler
 output buffer.
 
 This is not a rewrite of every message. Legacy inline watch/locals evaluation
-details, optional value-inspector/start-breakpoint fallback notices, setup/find
+details, optional value-inspector/start-breakpoint fallback notices, Session/find
 validation, ordinary status messages, SDK/setup-script/CMake diagnostics and
 upstream GTK/runtime failures retain their existing presentation. Compiler and
 GDB output keep their own formats; these codes are not a machine-readable
@@ -179,18 +179,22 @@ launched in cdbg's current working directory.
    preserving breakpoints, watches and arguments. When the session target is a
    `.cw` file, Restart recompiles with `cwhip -g` into the temporary executable
    first, then relaunches; prebuilt executables restart without rebuilding.
-3. **Debug > Setup…** opens a dialog parented to the main window with
-   **Break at start** (on by default for a new configuration), a program
-   **Arguments** field, and **Apply** / **Cancel**. Arguments use shell-like
-   quoting without running a shell: whitespace separates words, `'…'` is
-   literal, `"…"` allows `\"`, `\\`, `\$` and `` \` `` escapes, an unquoted
-   backslash escapes the next character, and `''` or `""` is an empty
+3. **Edit > Preferences…** (Ctrl+comma) opens a cedit-style preferences window
+   with **Session**, **Appearance** and **Keyboard** categories.
+   **Session** keeps **Break at start** (on by default for a new configuration),
+   a program **Arguments** field, and **Apply** / **Cancel**. Arguments use
+   shell-like quoting without running a shell: whitespace separates words,
+   `'…'` is literal, `"…"` allows `\"`, `\\`, `\$` and `` \` `` escapes, an
+   unquoted backslash escapes the next character, and `''` or `""` is an empty
    argument. Each argument is MI-quoted separately for `-exec-arguments`.
    Malformed input (unterminated quote, trailing backslash) is reported in the
    dialog and leaves the previous arguments and session unchanged. Apply never
    restarts a running program; the settings take effect at the next Run from a
    not-started target, Restart or Load. Cancel changes nothing. With no target
    loaded, Apply sets this directory's default Break at start.
+   **Appearance** (font, size, tab width, source line numbers) and **Keyboard**
+   (searchable Record/Reset/Disable bindings) auto-save to
+   `$XDG_CONFIG_HOME/cwhip/cdbg.toml`.
 
    Break at start inserts a temporary GDB breakpoint on the entry symbol for each
    new run, so it never accumulates duplicates and is not saved with the user's
@@ -200,11 +204,16 @@ launched in cdbg's current working directory.
    stops in `main()`. If the executable has no entry symbol (for example a
    stripped binary), the Debugger Console reports "Break at start unavailable"
    and the program runs without it. cdbg sets no other automatic breakpoint.
-4. At each stop the source location/current line, Locals / Arguments, Stack,
-   and Watches are refreshed. Right-click the **Watches (Cwhip / Native)** tab and choose
-   **Add Watch…**. The parented dialog has an expression entry and **Add** /
-   **Cancel** buttons. Out-of-scope/evaluation errors are displayed alongside
-   the expression.
+4. The right-hand side is a fixed multi-pane layout (not one notebook of seven
+   tabs): Locals/Watches/Runtime Values share a top notebook; Stack/Breakpoints
+   share a middle notebook; Program Output and Debugger Console sit side by
+   side at the bottom. **View** menu check items show or hide each pane
+   (Runtime Values is hidden by default). At each stop the source
+   location/current line, Locals / Arguments, Stack, and Watches are refreshed.
+   Right-click the **Watches (Cwhip / Native)** tab and choose **Add Watch…**.
+   The parented dialog has an expression entry and **Add** / **Cancel**
+   buttons. Out-of-scope/evaluation errors are displayed alongside the
+   expression.
 5. Single-click a **Stack** entry to inspect that frame's source, locals and
    watches. This browses the stack without executing. Step/continue operations
    restore the actual execution frame (frame zero) first, and the next stop
@@ -326,12 +335,19 @@ watches:
 
 ```toml
 version = 1
-break_at_start = true          # directory default for targets without Setup
+break_at_start = true          # directory default for targets without Session Apply
 width = 1100
 height = 760
 maximized = false
 pane = 600
-inspector = 0
+bottom_split = 400
+show_locals = true
+show_watches = true
+show_stack = true
+show_breaks = true
+show_output = true
+show_console = true
+show_runtime = false
 
 ["/abs/path/program.cw"]       # canonical executable, or .cw for cdbg file.cw
 break_at_start = false
@@ -344,12 +360,15 @@ watches = [
 ]
 ```
 
+Appearance, keyboard shortcuts and the global default break-at-start also live
+in `$XDG_CONFIG_HOME/cwhip/cdbg.toml` (or `~/.config/cwhip/cdbg.toml`).
+
 Target tables are keyed by canonical executable path; for `cdbg file.cw` the
 key is the canonical source path, never the temporary compiled executable.
 Symlink aliases share a key. Resolved locations are saved as file:line entries;
 multi-location groups are restored as individual file:line breakpoints rather
 than recreating a function breakpoint. A target's `break_at_start` and
-`arguments` are written only after Setup is applied for it. Watch expressions
+`arguments` are written only after Session Apply for it. Watch expressions
 are saved with the target whenever they change.
 
 Earlier versions used a global `$XDG_CONFIG_HOME/cdbg/state.toml` (or
@@ -359,20 +378,21 @@ Debugger Console notes that it is ignored. To migrate, copy the wanted
 `["/target"]` tables (and layout keys) by hand into the project's
 `.cdbg.toml`.
 
-Snapshots are written atomically after breakpoint/Setup changes and on Quit,
+Snapshots are written atomically after breakpoint/Session changes and on Quit,
 using private file permissions and a content/ETag guard against concurrent
 changes. If the directory is not writable, the status line, Debugger Console
 and stderr report "Settings not saved to …" (once per distinct error) and
-debugging continues; Setup reports that settings were not saved. Restore occurs
-after GDB accepts the target. Invalid, missing or unresolvable locations are
-skipped with a Debugger Console/stderr diagnostic; the session continues. Up to
-256 resolved locations per target and a 256 KiB file are supported; limits are
-reported rather than silently ignored.
+debugging continues; Session Apply reports that settings were not saved.
+Restore occurs after GDB accepts the target. Invalid, missing or unresolvable
+locations are skipped with a Debugger Console/stderr diagnostic; the session
+continues. Up to 256 resolved locations per target and a 256 KiB file are
+supported; limits are reported rather than silently ignored.
 
-Quit also saves window width/height, maximized state, the source/inspector
-divider position and selected inspector tab. Startup clamps size to 640–3840
-by 400–2160, the divider to 100 through width minus 100, and the inspector index
-to 0–5; GTK may further constrain dimensions to the available screen.
+Quit also saves window width/height, maximized state, the source/right divider
+(`pane`), the bottom output/console divider (`bottom_split`), and View-menu
+panel visibility flags. Startup clamps size to 640–3840 by 400–2160 and the
+main divider to 100 through width minus 100; GTK may further constrain
+dimensions to the available screen. An obsolete `inspector` key is ignored.
 Notebook headers scroll when necessary, so tab titles do not force the divider
 away from its saved position. A malformed/unreadable file falls back to
 defaults, logs a diagnostic and disables saving to preserve the original file
@@ -461,7 +481,7 @@ ignored (unchanged, not imported) global XDG file and an unwritable directory.
 A Cwhip `-g` regression sets line breakpoints with F9 and the Breakpoint menu in
 a method and in `start`, and checks that the running program actually stops at
 start, then in the method, then at the later line; that an uncalled method's
-breakpoint is reported as not reached; Setup Apply/Cancel and invalid quoting;
+breakpoint is reported as not reached; Session Preferences Apply/Cancel and invalid quoting;
 arguments with spaces, quotes and an empty string reaching the program; Program
 Output Copy, Copy All (via the real clipboard) and Clear followed by new output;
 Restart without duplicate start breakpoints; and a real relaunch restoring

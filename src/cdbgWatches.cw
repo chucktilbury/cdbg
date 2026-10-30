@@ -10,20 +10,6 @@ void Cdbg.closeWatch() { watchWindow.setVisible(false) }
 bool Cdbg.watchCloseRequested() { closeWatch()
         return(true) }
 
-void Cdbg.showSetup() {
-        setupStart.setActive(breakAtStart)
-        setupArguments.setText(ArgumentList().display(arguments))
-        if (stateTarget.equals("")) {
-            setupStatus.setText("No target loaded: Break at start becomes this directory's default")
-        } else { setupStatus.setText(format("Settings for {}", stateTarget)) }
-        setupWindow.setVisible(true)
-        setupWindow.present()
-        setupArguments.focus()
-    }
-void Cdbg.closeSetup() { setupWindow.setVisible(false) }
-bool Cdbg.setupCloseRequested() { closeSetup()
-        return(true) }
-
 // Apply never restarts a running program: arguments and Break at start
 // take effect on the next Run (from not started), Restart or Load.
 void Cdbg.applySetup() {
@@ -41,9 +27,9 @@ void Cdbg.applySetup() {
         breakAtStart = setupStart.active()
         arguments = parsed.values
         argumentText = parsed.display(parsed.values)
-        String message = "Setup applied; takes effect on the next Run, Restart or Load"
+        String message = "Session applied; takes effect on the next Run, Restart or Load"
         if (running) {
-            message = "Setup applied; the running program is unchanged; takes effect on the next Run, Restart or Load"
+            message = "Session applied; the running program is unchanged; takes effect on the next Run, Restart or Load"
         }
         if (stateTarget.equals("")) { defaultChanged = true }
         else { targetSettings = true }

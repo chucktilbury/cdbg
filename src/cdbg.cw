@@ -4,15 +4,22 @@ import system
 include "mi.cw"
 include "terminal.cw"
 include "debugTypes.cw"
+include "commandBinding.cw"
+include "cdbgSettings.cw"
+include "keyboardPreference.cw"
 
 class Cdbg {
     Cdbg _self()
+    CdbgSettings settings
     Gtk.Window window
     Gtk.MenuBar menu
     int64 loadItem
     int64 openItem
     int64 quitItem
     int64 findItem
+    int64 preferencesItem
+    // Alias of preferencesItem for session tests that open Preferences.
+    int64 setupItem
     Gtk.FileDialog fileDialog
     Gtk.TransientWindow findWindow
     Gtk.Entry findEntry
@@ -21,8 +28,7 @@ class Cdbg {
     String sourceText
     int64 toggleBreakItem
     int64 toggleEnableItem
-    int64 setupItem
-    Gtk.TransientWindow setupWindow
+    // Session page controls inside Preferences (kept names for the UI fixture).
     Gtk.CheckButton setupStart
     Gtk.Entry setupArguments
     Gtk.Label setupStatus
@@ -41,7 +47,58 @@ class Cdbg {
     String startNumber
     bool atStart
     Gtk.Paned body
-    Gtk.Notebook inspection
+    Gtk.Box rightColumn
+    Gtk.Notebook topInspection
+    Gtk.Notebook midInspection
+    Gtk.Paned bottomRow
+    Gtk.Notebook outputNotebook
+    Gtk.Notebook consoleNotebook
+    Gtk.ScrolledWindow localsScroll
+    Gtk.ScrolledWindow watchesScroll
+    Gtk.ScrolledWindow runtimeScroll
+    Gtk.ScrolledWindow stackScroll
+    Gtk.ScrolledWindow breaksScroll
+    Gtk.ScrolledWindow outputScroll
+    Gtk.ScrolledWindow consoleScroll
+    bool showLocals
+    bool showWatches
+    bool showStack
+    bool showBreaks
+    bool showOutput
+    bool showConsole
+    bool showRuntime
+    bool localsAttached
+    bool watchesAttached
+    bool runtimeAttached
+    bool stackAttached
+    bool breaksAttached
+    bool outputAttached
+    bool consoleAttached
+    int64 viewLocalsItem
+    int64 viewWatchesItem
+    int64 viewStackItem
+    int64 viewBreaksItem
+    int64 viewOutputItem
+    int64 viewConsoleItem
+    int64 viewRuntimeItem
+    Gtk.TransientWindow preferencesWindow
+    Gtk.Box sessionPreferences
+    Gtk.Box appearancePreferences
+    Gtk.Box keyboardPreferences
+    Gtk.Entry fontEntry
+    Gtk.Entry sizeEntry
+    Gtk.Entry tabsEntry
+    Gtk.CheckButton numbersCheck
+    Gtk.Entry commandSearch
+    Gtk.Grid keyboardRowsBox
+    list keyboardRows
+    Gtk.Label preferencesMessage
+    Gtk.Label settingsPathLabel
+    Gtk.Box resetChoices
+    Gtk.Button confirmResetButton
+    Gtk.Button cancelResetButton
+    String resetSection
+    bool refreshingPreferences
     String statePath
     String stateText
     bool stateWritable
@@ -127,6 +184,7 @@ class Cdbg {
     int64 stopCount
 
     Cdbg() {
+        settings = CdbgSettings()
         requests = []
         expressions = []
         arguments = []
@@ -145,7 +203,7 @@ class Cdbg {
         breakpointEntries = []
         breakpointLocations = []
         stackFrames = []
-        breakAtStart = true
+        breakAtStart = settings.defaultBreakAtStart
         argumentText = ""
         cliArguments = []
         startBreakpoint = ""
@@ -167,8 +225,12 @@ class Cdbg {
         disableBreakItem = 0
         enableBreakItem = 0
         deleteBreakItem = 0
+        keyboardRows = []
+        resetSection = ""
+        refreshingPreferences = false
     }
     Gtk.Button button(Gtk.Box row, String title, void<> action)
+    Gtk.Button toolbarButton(Gtk.Box row, String title, void<> action)
 
     GtkSource.View pane()
 
@@ -340,6 +402,95 @@ class Cdbg {
 
     void applySetup()
 
+    void createPreferences()
+
+    Gtk.Entry preferenceEntry(Gtk.Box page, String label, String text)
+
+    void showPreferences()
+
+    bool hidePreferences()
+
+    void showSessionPreferences()
+
+    void showAppearancePreferences()
+
+    void showKeyboardPreferences()
+
+    void appearanceSettingChanged(String text)
+
+    void appearanceChanged()
+
+    void appearanceCheckChanged(bool active)
+
+    void commandSearchChanged(String text)
+
+    void filterCommands(String text)
+
+    void prepareShortcutRecord()
+
+    void keyboardChanged()
+
+    void resetAppearancePreferences()
+
+    void resetKeyboardPreferences()
+
+    void confirmPreferencesReset()
+
+    void cancelPreferencesReset()
+
+    void settingsChanged()
+
+    void saveSettings()
+
+    void applyAppearance()
+
+    void bindCommands()
+
+    void rebindShortcuts()
+
+    void buildInspectionLayout(Gtk.Paned host)
+
+    void addViewMenu()
+
+    void viewLocalsChecked(bool active)
+
+    void viewWatchesChecked(bool active)
+
+    void viewStackChecked(bool active)
+
+    void viewBreaksChecked(bool active)
+
+    void viewOutputChecked(bool active)
+
+    void viewConsoleChecked(bool active)
+
+    void viewRuntimeChecked(bool active)
+
+    void setPanelVisible(String name, bool active)
+
+    void togglePanel(String name)
+
+    void syncViewMenuChecks()
+
+    void syncPage(Gtk.Notebook notebook, Gtk.ScrolledWindow item, String title, bool want,
+                  bool attached)
+
+    void syncInspectionPages()
+
+    void toggleLocalsPanel()
+
+    void toggleWatchesPanel()
+
+    void toggleStackPanel()
+
+    void toggleBreaksPanel()
+
+    void toggleOutputPanel()
+
+    void toggleConsolePanel()
+
+    void toggleRuntimePanel()
+
     void clearOutput()
 
     void copyOutput()
@@ -420,6 +571,8 @@ include "cdbgWatches.cw"
 include "cdbgSource.cw"
 include "cdbgGdb.cw"
 include "cdbgUi.cw"
+include "cdbgLayout.cw"
+include "cdbgPreferences.cw"
 
 Cdbg Cdbg._self() from "cwhip_gtk_self"
 

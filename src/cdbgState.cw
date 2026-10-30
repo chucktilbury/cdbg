@@ -63,7 +63,18 @@ void Cdbg.readState() {
         int64 width = stateNumber("width", 1100, 640, 3840)
         window.setDefaultSize(width, stateNumber("height", 760, 400, 2160))
         body.setPosition(stateNumber("pane", 600, 100, width - 100))
-        inspection.setCurrentPage(stateNumber("inspector", 0, 0, 6))
+        if (bottomRow != null) {
+            bottomRow.setPosition(stateNumber("bottom_split", 400, 80, width - 80))
+        }
+        showLocals = savedFlag("", "show_locals", true)
+        showWatches = savedFlag("", "show_watches", true)
+        showStack = savedFlag("", "show_stack", true)
+        showBreaks = savedFlag("", "show_breaks", true)
+        showOutput = savedFlag("", "show_output", true)
+        showConsole = savedFlag("", "show_console", true)
+        showRuntime = savedFlag("", "show_runtime", false)
+        syncInspectionPages()
+        syncViewMenuChecks()
         String maximized = Gtk.Config().value(stateText, "", "maximized")
         if (maximized.equals("btrue")) { window.setMaximized(true) }
         else { if (!maximized.equals("") && !maximized.equals("bfalse")) {
@@ -83,7 +94,7 @@ bool Cdbg.savedFlag(String table, String key, bool fallback) {
 // (true for a new configuration). Command-line arguments after -- override
 // saved arguments for that command-line session only and are not saved.
 void Cdbg.loadTargetSettings() {
-        breakAtStart = savedFlag("", "break_at_start", true)
+        breakAtStart = savedFlag("", "break_at_start", settings.defaultBreakAtStart)
         targetSettings = false
         arguments = []
         argumentText = ""
@@ -113,9 +124,12 @@ void Cdbg.saveState(bool layout) {
         String updates = "version = 1\n"
         if (defaultChanged) { updates.append(format("break_at_start = {}\n", breakAtStart)) }
         if (layout) {
-            updates.append(format("width = {}\nheight = {}\nmaximized = {}\npane = {}\ninspector = {}\n",
+            int64 bottom = 400
+            if (bottomRow != null) { bottom = bottomRow.position() }
+            updates.append(format("width = {}\nheight = {}\nmaximized = {}\npane = {}\nbottom_split = {}\nshow_locals = {}\nshow_watches = {}\nshow_stack = {}\nshow_breaks = {}\nshow_output = {}\nshow_console = {}\nshow_runtime = {}\n",
                 window.defaultWidth(), window.defaultHeight(), window.maximized(), body.position(),
-                inspection.currentPage()))
+                bottom, showLocals, showWatches, showStack, showBreaks, showOutput, showConsole,
+                showRuntime))
         }
         bool points = loaded && !restoringBreakpoints
         if (!stateTarget.equals("") && (points || targetSettings)) {
