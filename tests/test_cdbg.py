@@ -518,6 +518,11 @@ class DebugChecks {
             require(ui.showRuntime && ui.runtimeAttached, "View panel shows Runtime Values")
             ui.setPanelVisible("runtime", false)
             require(!ui.showRuntime && !ui.runtimeAttached, "View panel hides Runtime Values again")
+            require(!ui.showThreads, "Threads hidden by default")
+            ui.setPanelVisible("threads", true)
+            require(ui.showThreads && ui.threadsAttached, "View panel shows Threads")
+            ui.setPanelVisible("threads", false)
+            require(!ui.showThreads && !ui.threadsAttached, "View panel hides Threads again")
         }
         ui.loadTarget(System.Process().getEnv("CDBG_TEST_TARGET"))
         Gtk.Application().post(_self().tick)

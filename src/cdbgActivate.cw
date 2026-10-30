@@ -192,6 +192,7 @@ void Cdbg.bindCommands() {
         settings.command("view-output").action = _self().toggleOutputPanel
         settings.command("view-console").action = _self().toggleConsolePanel
         settings.command("view-runtime").action = _self().toggleRuntimePanel
+        settings.command("view-threads").action = _self().toggleThreadsPanel
     }
 
 void Cdbg.toggleLocalsPanel() { togglePanel("locals") }
@@ -201,6 +202,7 @@ void Cdbg.toggleBreaksPanel() { togglePanel("breaks") }
 void Cdbg.toggleOutputPanel() { togglePanel("output") }
 void Cdbg.toggleConsolePanel() { togglePanel("console") }
 void Cdbg.toggleRuntimePanel() { togglePanel("runtime") }
+void Cdbg.toggleThreadsPanel() { togglePanel("threads") }
 
 void Cdbg.rebindShortcuts() {
         if (window == null || window.disposed()) { return }

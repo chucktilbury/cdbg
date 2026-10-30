@@ -133,3 +133,18 @@ void Cdbg.selectFrame(String number) {
             return }
         enqueue(format("-stack-select-frame {}", number), "frame", number)
     }
+
+void Cdbg.threadClicked(int64 line) {
+        int64 row = line - 1
+        if (row < 0 || row >= threadIds.length) { return }
+        selectThread(threadIds[row] as String)
+    }
+
+void Cdbg.selectThread(String number) {
+        if (!stopped()) { return }
+        if (executing) { fail("Thread selection ignored: an execution command is pending")
+            return }
+        if (!identifier(number)) { fail("Select a thread")
+            return }
+        enqueue(format("-thread-select {}", number), "thread", number)
+    }

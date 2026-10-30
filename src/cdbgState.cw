@@ -80,6 +80,7 @@ void Cdbg.readState() {
         showOutput = savedFlag("", "show_output", true)
         showConsole = savedFlag("", "show_console", true)
         showRuntime = savedFlag("", "show_runtime", false)
+        showThreads = savedFlag("", "show_threads", false)
         syncInspectionPages()
         syncViewMenuChecks()
         String maximized = Gtk.Config().value(stateText, "", "maximized")
@@ -161,10 +162,10 @@ void Cdbg.saveState(bool layout) {
             if (bottomRow != null) { bottom = bottomRow.position() }
             if (rightColumn != null) { right = rightColumn.position() }
             if (topMid != null) { mid = topMid.position() }
-            updates.append(format("width = {}\nheight = {}\nmaximized = {}\npane = {}\nright_split = {}\nmid_split = {}\nbottom_split = {}\nshow_locals = {}\nshow_watches = {}\nshow_stack = {}\nshow_breaks = {}\nshow_output = {}\nshow_console = {}\nshow_runtime = {}\n",
+            updates.append(format("width = {}\nheight = {}\nmaximized = {}\npane = {}\nright_split = {}\nmid_split = {}\nbottom_split = {}\nshow_locals = {}\nshow_watches = {}\nshow_stack = {}\nshow_breaks = {}\nshow_output = {}\nshow_console = {}\nshow_runtime = {}\nshow_threads = {}\n",
                 window.defaultWidth(), window.defaultHeight(), window.maximized(), body.position(),
                 right, mid, bottom, showLocals, showWatches, showStack, showBreaks, showOutput,
-                showConsole, showRuntime))
+                showConsole, showRuntime, showThreads))
         }
         bool points = loaded && !restoringBreakpoints
         if (!stateTarget.equals("") && (points || targetSettings)) {

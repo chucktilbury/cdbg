@@ -188,6 +188,30 @@ void Cdbg.response(MiParser record) {
             }
             if (!stack.text().equals(text)) { stack.setText(text) }
         }
+        if (done.purpose.equals("threads")) {
+            MiValue rows = record.data.field("threads")
+            String current = record.data.field("current-thread-id").text
+            threadIds = []
+            String text = ""
+            int64 i = 0
+            while (i < rows.values.length) {
+                MiValue item = rows.values[i] as MiValue
+                String id = item.field("id").text
+                threadIds.append(id)
+                MiValue frame = item.field("frame")
+                String mark = " "
+                if (id.equals(current)) { mark = "*" }
+                text.append(format("{}{} {} {} {}:{} ({})\n", mark, id, item.field("target-id").text,
+                    frame.field("func").text, frame.field("file").text, frame.field("line").text,
+                    item.field("state").text))
+                i = i + 1
+            }
+            if (text.equals("")) { text = "(No threads)" }
+            if (!threads.text().equals(text)) { threads.setText(text) }
+        }
+        if (done.purpose.equals("thread")) {
+            refresh()
+        }
         if (done.purpose.equals("watch")) {
             watches.setText(format("{}{} = {}\n", watches.text(), done.expression, record.data.field("friendly").text))
             runtimeWatches.append(format("{} : {} = {}\n", done.expression,
@@ -288,6 +312,8 @@ void Cdbg.record(String line) {
                 locals.setText("Target exited")
                 watches.setText("Target exited")
                 runtimeValues.setText("Target exited")
+                threads.setText("Target exited")
+                threadIds = []
                 String exitText = format("Target {}", reason)
                 if (!parsed.data.field("exit-code").text.equals("")) {
                     exitText.append(format(" {}", parsed.data.field("exit-code").text))

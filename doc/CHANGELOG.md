@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- View > Threads (hidden by default): read-only thread list from `-thread-info`;
+  activate a row to `-thread-select` and refresh stack/locals/watches. Persist
+  `show_threads`.
 - Persist right-column vertical sashes (`right_split`, `mid_split`) using
   nested vertical `Gtk.Paned` (requires cwhip vertical Paned).
 - Locals/Watches: line activate drills into a watch for the symbol; context

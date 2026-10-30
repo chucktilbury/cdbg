@@ -1,6 +1,7 @@
 bool Cdbg.inspection(DebugRequest request) {
         return (request.purpose.equals("location") || request.purpose.equals("locals") ||
-            request.purpose.equals("stack") || request.purpose.equals("watch"))
+            request.purpose.equals("stack") || request.purpose.equals("watch") ||
+            request.purpose.equals("threads"))
     }
 
 void Cdbg.refresh() {
@@ -22,6 +23,7 @@ void Cdbg.refresh() {
         if (valueInspector) { enqueue("-cdbg-inspect locals", "locals", "") }
         else { enqueue("-stack-list-variables --all-values", "locals", "") }
         enqueue("-stack-list-frames 0 30", "stack", "")
+        enqueue("-thread-info", "threads", "")
         int64 i = 0
         while (i < expressions.length) {
             String expression = expressions[i] as String

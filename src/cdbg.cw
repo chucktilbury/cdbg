@@ -81,11 +81,13 @@ class Cdbg {
     bool showOutput
     bool showConsole
     bool showRuntime
+    bool showThreads
     bool localsAttached
     bool watchesAttached
     bool runtimeAttached
     bool stackAttached
     bool breaksAttached
+    bool threadsAttached
     bool outputAttached
     bool consoleAttached
     int64 viewLocalsItem
@@ -95,6 +97,10 @@ class Cdbg {
     int64 viewOutputItem
     int64 viewConsoleItem
     int64 viewRuntimeItem
+    int64 viewThreadsItem
+    GtkSource.View threads
+    Gtk.ScrolledWindow threadsScroll
+    list threadIds
     Gtk.TransientWindow preferencesWindow
     Gtk.Box sessionPreferences
     Gtk.Box appearancePreferences
@@ -217,6 +223,7 @@ class Cdbg {
         breakpointEntries = []
         breakpointLocations = []
         stackFrames = []
+        threadIds = []
         breakAtStart = settings.defaultBreakAtStart
         argumentText = ""
         sessionCwd = ""
@@ -511,6 +518,8 @@ class Cdbg {
 
     void viewBreaksChecked(bool active)
 
+    void viewThreadsChecked(bool active)
+
     void viewOutputChecked(bool active)
 
     void viewConsoleChecked(bool active)
@@ -542,6 +551,8 @@ class Cdbg {
 
     void toggleRuntimePanel()
 
+    void toggleThreadsPanel()
+
     void clearOutput()
 
     void copyOutput()
@@ -555,6 +566,10 @@ class Cdbg {
     void stackClicked(int64 line)
 
     void selectFrame(String number)
+
+    void threadClicked(int64 line)
+
+    void selectThread(String number)
 
     bool inspection(DebugRequest request)
 
