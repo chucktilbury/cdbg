@@ -117,6 +117,9 @@ class Cdbg {
     // PC (mid-line after a call return). Keep nexting until the line changes.
     int64 skipSameLineLeft
     int64 skippedSameLineStops
+    // Newly opened source tabs are not allocated yet; center/focus after idle.
+    int64 pendingRevealLine
+    int64 pendingRevealTries
     bool rebuildPendingRun
     bool rebuildBreakAtStart
     bool preferCwhipStops
@@ -1811,8 +1814,28 @@ class Cdbg {
         if (path.equals("")) { sourceMessage("Source unavailable: stopped frame has no source path") }
         else {
             showSource(path, line)
-            if (source != null) { source.focus() }
+            // New tabs schedule revealPendingSource; existing tabs can focus now.
+            if (source != null && pendingRevealLine < 1) { source.focus() }
         }
+    }
+    // First open of a runtime/.c file runs before the notebook page has a size;
+    // scroll-to-line and highlight need an idle after map. Retry once if needed.
+    void revealPendingSource() {
+        int64 line = pendingRevealLine
+        if (closed || source == null || line < 1) {
+            pendingRevealLine = 0
+            pendingRevealTries = 0
+            return
+        }
+        source.centerCursor(line, 1)
+        source.focus()
+        if (source.line() != line && pendingRevealTries < 1) {
+            pendingRevealTries = pendingRevealTries + 1
+            Gtk.Application().post(_self().revealPendingSource)
+            return
+        }
+        pendingRevealLine = 0
+        pendingRevealTries = 0
     }
     // Reads a source file for display; on failure shows the parented error
     // dialog and returns false without touching any tab.
@@ -1887,8 +1910,10 @@ class Cdbg {
         removeMessagePage()
         sourceTabs.setCurrentPage(sourceFiles.length - 1)
         if (identifier(line) && line.toInt64() > 0) {
-            source.centerCursor(line.toInt64(), 1)
             document.centeredStop = stopCount
+            pendingRevealLine = line.toInt64()
+            pendingRevealTries = 0
+            Gtk.Application().post(_self().revealPendingSource)
         }
         return(true)
     }

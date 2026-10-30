@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- When Step Into first opens a runtime source tab, defer centering until after
+  the notebook page is mapped so the stop line is highlighted on the first
+  visit (not only on later stops in that file).
 - Toolbar debug buttons are non-focusable and (with the matching Cwhip GTK
   fix) activate on mouse press so a dropped button-release cannot swallow the
   first **Step Over** click. F10 was already one keypress after disabling
