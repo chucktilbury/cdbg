@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Clarify Session Preferences / View-keyboard docs after the multi-pane layout
+  and Preferences work; refresh fixture comments for inspection notebooks.
+  View panel toggles stay unbound by default (assign under Keyboard).
 - Replace the single right-hand inspection notebook with a fixed multi-pane
   layout (Locals/Watches, Stack/Breakpoints, Output|Console) and a **View**
   menu to show or hide each pane. Persist sash positions and visibility in

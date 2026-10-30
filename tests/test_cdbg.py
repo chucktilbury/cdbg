@@ -1044,7 +1044,7 @@ class DebugChecks {
             require(DebugUiFixture().setup(1, "only", "Apply") && ui.hasRun && !ui.running &&
                 ui.stopCount == stops && ui.location.contains(":4 ("), "Apply does not restart the program")
             ui.menu.activateItem(ui.setupItem)
-            require(DebugUiFixture().setup(0, args, "Apply"), "restore setup")
+            require(DebugUiFixture().setup(0, args, "Apply"), "restore Session settings")
             ui.restart()
             stage = 21
         }
