@@ -162,8 +162,10 @@ launched in cdbg's current working directory.
 2. **Run / Continue** (F5), **Step Into** (F11), **Step Over** (F10),
    **Step Out** (Shift+F11) and **Pause** use GDB's
    run/continue/step/next/finish/interrupt commands. Controls reflect running
-   versus stopped state. F10 is reserved for Step Over (GTK's menubar F10
-   accelerator is disabled on the debugger window). On a Cwhip (`.cw`) session,
+   versus stopped state.    F10 is reserved for Step Over (GTK's menubar F10
+   accelerator is disabled on the debugger window). Toolbar buttons do not take
+   focus, so a mouse press on **Step Over** steps on the first click while the
+   source pane keeps keyboard focus. On a Cwhip (`.cw`) session,
    **Step Into** finishes out of thin GC/trace prologues and frames with no
    source until the next `.cw` stop or a runtime frame that has debug info and
    is real work (for example `cwhip_string_format_new` when stepping into

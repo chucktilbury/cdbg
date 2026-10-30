@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Toolbar debug buttons are non-focusable so the first mouse press on
+  **Step Over** (and the other controls) activates instead of only moving
+  focus out of the source pane. F10 Step Over was already one keypress after
+  disabling GTK's menubar accelerator.
 - Disable GTK's default F10 menubar accelerator so **Step Over** (F10) runs on
   the first keypress. The earlier same-line auto-next still applies when GDB
   stops again on the same source line; looper-style programs already advance
