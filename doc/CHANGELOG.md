@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Replace the single right-hand inspection notebook with a fixed multi-pane
+  layout (Locals/Watches, Stack/Breakpoints, Output|Console) and a **View**
+  menu to show or hide each pane. Persist sash positions and visibility in
+  `.cdbg.toml`.
+- Replace **Debug > Setup…** with cedit-style **Edit > Preferences…**
+  (Ctrl+comma): Session (Apply/Cancel for break-at-start and arguments),
+  Appearance (font/size/tabs/line numbers), and Keyboard (Record/Reset/Disable).
+  Appearance and keyboard auto-save to `~/.config/cwhip/cdbg.toml`.
+- Session UI tests activate non-focusable toolbar buttons via their
+  `GestureClick::pressed` handler (matching the GTK press-to-activate fix).
 - Split the monolithic `cdbg.cw` into typed helpers and method modules
   (`debugTypes.cw`, `cdbgActivate.cw`, `cdbgTarget.cw`, `cdbgFind.cw`,
   `cdbgState.cw`, `cdbgSession.cw`, `cdbgExecution.cw`, `cdbgBreakpoints.cw`,

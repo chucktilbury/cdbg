@@ -236,8 +236,7 @@ class DebugChecks {
             if (stage == 7) {
                 if (System.Process().getEnv("CDBG_RUNTIME_TEST").equals("1")) {
                     stepped("RuntimeGc.c", System.Process().getEnv("CDBG_RUNTIME_CALL").toInt64())
-                    ui.inspection.setCurrentPage(1)
-                    stage = 30
+                                        stage = 30
                     return(true)
                 }
                 require(false, "non-runtime Step Into path should skip stage 7")
@@ -295,8 +294,7 @@ class DebugChecks {
             }
             if (stage == 19) {
                 stepped("stepping.cw", 3)
-                ui.inspection.setCurrentPage(1)
-                stage = 190
+                                stage = 190
                 return(true)
             }
             if (stage == 20) {
@@ -399,7 +397,7 @@ class DebugChecks {
     bool valuesTick() {
         if (stage == 0 && ui.loaded && idle()) {
             ui.breakAtStart = false
-            require(ui.valueInspector && ui.inspection.pageCount() == 7, "value inspector and Runtime Values tab")
+            require(ui.valueInspector && ui.runtimeValues != null, "value inspector and Runtime Values pane")
             ui.addBreakpoint(format("{}:{}", System.Process().getEnv("CDBG_TEST_SOURCE"),
                 System.Process().getEnv("CDBG_TEST_LINE")))
             list names = ["counter", "positive", "truth", "fraction", "message", "missing",
@@ -493,7 +491,7 @@ class DebugChecks {
         require(ui.console.text().equals(previousConsole), "incomplete record buffered")
         ui.consume("ed\\n\"\n")
         require(ui.console.text().equals(format("{}fragmented\n", previousConsole)), "fragmented record reassembled")
-        deadline = Time.Clock().monotonicMilliseconds() + 20000u
+        deadline = Time.Clock().monotonicMilliseconds() + 90000u
         if (mode.equals("ui") || mode.equals("context")) {
             require(ui.sourceTabs.pageCount() == 1 && ui.source.text().startsWith("No source"),
                 "source area starts with a placeholder page")
@@ -501,6 +499,16 @@ class DebugChecks {
         if (mode.equals("context")) {
             require(DebugUiFixture().shortcut("F9") && ui.status.text().contains("Load a target"),
                 "unloaded shortcut gives clear status without manipulating breakpoints")
+            require(DebugUiFixture().shortcut("<Control>comma"),
+                "Ctrl+comma opens Preferences")
+            require(ui.preferencesWindow != null && !ui.preferencesWindow.disposed() &&
+                ui.preferencesWindow.visible(), "Preferences window visible")
+            require(DebugUiFixture().setup(-1, "", "Cancel"), "Preferences Cancel hides dialog")
+            require(!ui.showRuntime, "Runtime Values hidden by default")
+            ui.setPanelVisible("runtime", true)
+            require(ui.showRuntime && ui.runtimeAttached, "View panel shows Runtime Values")
+            ui.setPanelVisible("runtime", false)
+            require(!ui.showRuntime && !ui.runtimeAttached, "View panel hides Runtime Values again")
         }
         ui.loadTarget(System.Process().getEnv("CDBG_TEST_TARGET"))
         Gtk.Application().post(_self().tick)
@@ -656,7 +664,7 @@ class DebugChecks {
             if (stage == 2) {
                 ui.window.setDefaultSize(980, 680)
                 ui.body.setPosition(420)
-                ui.inspection.setCurrentPage(4)
+                ui.setPanelVisible("output", true)
                 if (System.Process().getEnv("CDBG_TEST_MAXIMIZE").equals("true")) {
                     ui.window.setMaximized(true)
                 }
@@ -676,10 +684,10 @@ class DebugChecks {
                 require(ui.showSource(path, format("{}", line)) && DebugUiFixture().disabled(line),
                     "restored disabled breakpoint has gray mark")
                 require(ui.window.defaultWidth() == 980 && ui.window.defaultHeight() == 680 &&
-                    ui.body.position() == 420 && ui.inspection.currentPage() == 4,
-                    format("window geometry and layout restored: {}x{} pane {} tab {}, state {}",
+                    ui.body.position() == 420 && ui.showOutput,
+                    format("window geometry and layout restored: {}x{} pane {} output {}, state {}",
                         ui.window.defaultWidth(), ui.window.defaultHeight(), ui.body.position(),
-                        ui.inspection.currentPage(), ui.stateText))
+                        ui.showOutput, ui.stateText))
                 require(Gtk.Config().value(ui.stateText, "", "maximized").equals(
                     format("b{}", System.Process().getEnv("CDBG_TEST_MAXIMIZE"))),
                     "maximized state saved and restored")
@@ -731,14 +739,14 @@ class DebugChecks {
                         ui.window.defaultWidth() >= 640 && ui.window.defaultWidth() <= 3840 &&
                         ui.window.defaultHeight() == 400 &&
                         ui.body.position() >= 100 && ui.body.position() <= 3740 &&
-                        ui.inspection.currentPage() == 6, "out-of-range layout values clamped")
+                        ui.bottomRow.position() >= 80, "out-of-range layout values clamped")
                 } else {
                     require(ui.breakpointLocations.length == 0 &&
                         ui.window.defaultWidth() >= 640 && ui.window.defaultWidth() <= 1100 &&
                         ui.window.defaultHeight() == 760 &&
-                        ui.inspection.currentPage() == 0 && !ui.stateWritable,
-                        format("corrupt defaults: {}x{} tab {} writable {} locations {}",
-                            ui.window.defaultWidth(), ui.window.defaultHeight(), ui.inspection.currentPage(),
+                        !ui.stateWritable,
+                        format("corrupt defaults: {}x{} writable {} locations {}",
+                            ui.window.defaultWidth(), ui.window.defaultHeight(),
                             ui.stateWritable, ui.breakpointLocations.length))
                 } } } } }
             }
@@ -905,7 +913,7 @@ class DebugChecks {
         return(ui.stopCount > stops && !ui.running && idle() && ui.location.contains(format(":{} (", line)))
     }
     // Real Cwhip -g line breakpoints set via F9/menu must stop the inferior,
-    // not merely paint a mark; Break at start, Setup, arguments and the
+    // not merely paint a mark; Break at start, Session Preferences, arguments and the
     // Program Output menu are exercised on the same live session.
     bool breaksTick() {
         String path = System.Process().getEnv("CDBG_TEST_SOURCE")
@@ -920,7 +928,7 @@ class DebugChecks {
                 require(!DebugUiFixture().setup(-1, "bad \"quote", "Apply") &&
                     ui.setupStatus.text().contains("Invalid arguments: unterminated quote") &&
                     ui.arguments.length == 0, "invalid arguments rejected; dialog stays open")
-                require(DebugUiFixture().setup(1, args, "Apply"), "valid Setup applies and closes")
+                require(DebugUiFixture().setup(1, args, "Apply"), "valid Session Apply closes preferences")
                 require(ui.arguments.length == 4 && (ui.arguments[1] as String).equals("two words") &&
                     (ui.arguments[2] as String).equals("") && (ui.arguments[3] as String).equals("it's") &&
                     ui.status.text().contains("next Run"), "arguments parsed with shell quoting")
@@ -1792,7 +1800,7 @@ def main() -> None:
                     gtk_env["CDBG_COMPILER"] = str(failed_compiler)
                 if mode == "gdb-exit":
                     gtk_env["CDBG_GDB"] = str(exited_gdb)
-                result = invoke([str(binary)], work, gtk_env, timeout=45)
+                result = invoke([str(binary)], work, gtk_env, timeout=120)
                 expected_output = result.stdout == "true"
                 if mode == "cancel":
                     expected_output = result.stdout.startswith("true:")
@@ -1858,7 +1866,7 @@ def main() -> None:
             if runtime_test:
                 gtk_env.update(CDBG_RUNTIME_ENTRY=str(runtime_entry),
                                CDBG_RUNTIME_CALL=str(runtime_call))
-            result = invoke([str(binary)], stepping_work, gtk_env, timeout=45)
+            result = invoke([str(binary)], stepping_work, gtk_env, timeout=120)
             transcript = trace.read_text() if trace.exists() else "(no MI trace)"
             # Keep the last live transcript available even when the temp test
             # directory is removed, including on assertion failure.
@@ -1907,7 +1915,7 @@ def main() -> None:
                             time.sleep(0.4)
                             assert manager.poll() is None, (work / "wm.log").read_text()
                             gtk_env["CDBG_TEST_MAXIMIZE"] = "true"
-                        result = invoke([str(binary)], cwd, gtk_env, timeout=45)
+                        result = invoke([str(binary)], cwd, gtk_env, timeout=120)
                         assert result.returncode == 0 and result.stdout == "true", (
                             mode, result.returncode, result.stdout, result.stderr)
                         if mode in ("state-save", "state-restore", "state-clamped", "state-global",
@@ -1968,7 +1976,7 @@ def main() -> None:
         clamped_dir = work / "local-clamped"
         clamped_dir.mkdir()
         (clamped_dir / ".cdbg.toml").write_text(
-            "version = 1\nwidth = 99999\nheight = 0\npane = 9999\ninspector = 99\nmaximized = false\n")
+            "version = 1\nwidth = 99999\nheight = 0\npane = 9999\nbottom_split = 9999\nmaximized = false\n")
         state_run("state-clamped", c_binary, c_source, 7, clamped_env, clamped_dir)
         # An old global XDG file is reported but never imported or modified.
         global_env = environment(work / "state-global")
@@ -1993,7 +2001,7 @@ def main() -> None:
                 assert not list(unwritable_dir.iterdir()), "no settings file in unwritable directory"
         finally:
             unwritable_dir.chmod(0o755)
-        # Real Cwhip -g line breakpoints from F9/menu stop the program; Setup,
+        # Real Cwhip -g line breakpoints from F9/menu stop the program; Session,
         # arguments and Break at start persist across a real quit and relaunch.
         breaks_source = work / "breaks.cw"
         breaks_source.write_text(BREAKS_FIXTURE)

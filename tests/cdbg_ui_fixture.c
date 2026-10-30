@@ -181,13 +181,17 @@ static char *text_arg(void *text) {
     return length ? g_strndup(bytes, length) : g_strdup("");
 }
 
-/* Every source and inspector tab is drawn with the bordered tab style. */
+/* Every source and inspector notebook uses the bordered tab style. */
 bool cdbg_fixture_bordered(void *self) {
     (void)self;
-    GtkWidget *source = notebook_at(0), *inspector = notebook_at(1);
-    return source && inspector && !notebook_at(2) &&
-           gtk_widget_has_css_class(source, "cwhip-file-tabs") &&
-           gtk_widget_has_css_class(inspector, "cwhip-file-tabs");
+    GtkWidget *source = notebook_at(0);
+    if (!source || !gtk_widget_has_css_class(source, "cwhip-file-tabs") || !notebook_at(1))
+        return false;
+    for (int i = 1; ; ++i) {
+        GtkWidget *notebook = notebook_at(i);
+        if (!notebook) return true;
+        if (!gtk_widget_has_css_class(notebook, "cwhip-file-tabs")) return false;
+    }
 }
 
 static GtkWidget *close_button(GtkWidget *tab) {
@@ -273,6 +277,23 @@ static GtkWidget *button_labeled(GtkWidget *widget, const char *label) {
     return NULL;
 }
 
+/* Non-focusable toolbar buttons bind on GestureClick::pressed, not clicked;
+ * gtk_widget_activate also misses that path when can-focus is false. */
+static bool activate_toolbar_button(GtkWidget *button) {
+    bool activated = false;
+    GListModel *controllers = gtk_widget_observe_controllers(button);
+    for (guint i = 0; !activated && i < g_list_model_get_n_items(controllers); ++i) {
+        GtkEventController *controller = g_list_model_get_item(controllers, i);
+        if (GTK_IS_GESTURE_CLICK(controller)) {
+            g_signal_emit_by_name(controller, "pressed", 1, 0.0, 0.0);
+            activated = true;
+        }
+        g_object_unref(controller);
+    }
+    g_object_unref(controllers);
+    return activated;
+}
+
 bool cdbg_fixture_step(void *self, void *name, bool keyboard) {
     (void)self;
     GtkWindow *window = debugger_window();
@@ -280,6 +301,7 @@ bool cdbg_fixture_step(void *self, void *name, bool keyboard) {
     GtkWidget *button = window ? button_labeled(GTK_WIDGET(window), label) : NULL;
     g_free(label);
     if (!button || !gtk_widget_is_sensitive(button)) return false;
+    if (!gtk_widget_get_can_focus(button)) return activate_toolbar_button(button);
     if (keyboard) {
         gtk_widget_grab_focus(button);
         return gtk_widget_activate(button);
@@ -433,17 +455,18 @@ bool cdbg_fixture_no_break_menus(void *self) {
 }
 
 static GtkTextView *inspector_view(const char *title) {
-    GtkWidget *notebook = notebook_at(1);
-    if (!notebook) return NULL;
-    for (int i = 0; i < gtk_notebook_get_n_pages(GTK_NOTEBOOK(notebook)); ++i) {
-        GtkWidget *page = gtk_notebook_get_nth_page(GTK_NOTEBOOK(notebook), i);
-        if (g_strcmp0(gtk_notebook_get_tab_label_text(GTK_NOTEBOOK(notebook), page), title) == 0) {
-            gtk_notebook_set_current_page(GTK_NOTEBOOK(notebook), i);
-            GtkWidget *view = find_type(page, GTK_TYPE_TEXT_VIEW);
-            return view ? GTK_TEXT_VIEW(view) : NULL;
+    for (int n = 1; ; ++n) {
+        GtkWidget *notebook = notebook_at(n);
+        if (!notebook) return NULL;
+        for (int i = 0; i < gtk_notebook_get_n_pages(GTK_NOTEBOOK(notebook)); ++i) {
+            GtkWidget *page = gtk_notebook_get_nth_page(GTK_NOTEBOOK(notebook), i);
+            if (g_strcmp0(gtk_notebook_get_tab_label_text(GTK_NOTEBOOK(notebook), page), title) == 0) {
+                gtk_notebook_set_current_page(GTK_NOTEBOOK(notebook), i);
+                GtkWidget *view = find_type(page, GTK_TYPE_TEXT_VIEW);
+                return view ? GTK_TEXT_VIEW(view) : NULL;
+            }
         }
     }
-    return NULL;
 }
 
 /* True when a PopoverMenu GMenuModel contains a labelled item. */
@@ -630,15 +653,36 @@ bool cdbg_fixture_watch(void *self, void *expression, bool accept) {
     return !gtk_widget_get_visible(GTK_WIDGET(dialog));
 }
 
-/* Drive the real Setup dialog: start < 0 leaves the checkbox alone. Returns
+static GtkWidget *check_labeled(GtkWidget *widget, const char *label) {
+    if (GTK_IS_CHECK_BUTTON(widget) &&
+        g_strcmp0(gtk_check_button_get_label(GTK_CHECK_BUTTON(widget)), label) == 0)
+        return widget;
+    for (GtkWidget *child = gtk_widget_get_first_child(widget); child;
+         child = gtk_widget_get_next_sibling(child)) {
+        GtkWidget *found = check_labeled(child, label);
+        if (found) return found;
+    }
+    return NULL;
+}
+
+/* Drive Preferences > Session: start < 0 leaves the checkbox alone. Returns
    true when the dialog is hidden after the button click. */
 bool cdbg_fixture_setup(void *self, int64_t start, void *arguments, void *action) {
     (void)self;
-    GtkWindow *dialog = dialog_titled("Setup");
-    GtkWidget *check = dialog ? find_type(GTK_WIDGET(dialog), GTK_TYPE_CHECK_BUTTON) : NULL;
-    GtkWidget *entry = dialog ? find_type(GTK_WIDGET(dialog), GTK_TYPE_ENTRY) : NULL;
+    GtkWindow *dialog = dialog_titled("cdbg Preferences");
+    if (!dialog) return false;
+    /* Session page first: Break-at-start check and its program-arguments entry. */
+    GtkWidget *check = check_labeled(GTK_WIDGET(dialog), "Break at start");
+    GtkWidget *entry = NULL;
+    if (check) {
+        for (GtkWidget *sibling = gtk_widget_get_next_sibling(check); sibling && !entry;
+             sibling = gtk_widget_get_next_sibling(sibling))
+            if (GTK_IS_ENTRY(sibling)) entry = sibling;
+            else entry = find_type(sibling, GTK_TYPE_ENTRY);
+    }
+    if (!entry) entry = find_type(GTK_WIDGET(dialog), GTK_TYPE_ENTRY);
     char *label = text_arg(action);
-    GtkWidget *button = dialog ? button_labeled(GTK_WIDGET(dialog), label) : NULL;
+    GtkWidget *button = button_labeled(GTK_WIDGET(dialog), label);
     g_free(label);
     if (!check || !entry || !button) return false;
     if (start >= 0) gtk_check_button_set_active(GTK_CHECK_BUTTON(check), start != 0);
