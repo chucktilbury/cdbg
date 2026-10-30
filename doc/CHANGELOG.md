@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Step Over continues through same-line PC stops so one press advances one
+  source statement. Step Into still skips thin GC/trace prologues, but opens
+  runtime frames that have debug info and are real work (for example
+  `cwhip_string_format_new` behind `print`/`format`).
 - Read MI and source bytes with `text[index]` and copy half-open spans through
   an inclusive range. `String.byteAt` and `String.slice` are no longer SDK
   methods. Empty spans, including a stripped CR and a prefix-only token, stay
