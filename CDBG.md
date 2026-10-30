@@ -170,8 +170,10 @@ launched in cdbg's current working directory.
    source until the next `.cw` stop or a runtime frame that has debug info and
    is real work (for example `cwhip_string_format_new` when stepping into
    `print`/`format`; capped; the status notes how many frames were skipped).
-   **Step Over** continues through extra same-line stops so one press advances
-   one source statement. Pure C sessions keep every stop. **File >
+   The first time a runtime source tab opens, centering waits until the page is
+   mapped so the stop line is highlighted immediately. **Step Over** continues
+   through extra same-line stops so one press advances one source statement.
+   Pure C sessions keep every stop. **File >
    Load Executable…** ends the old GDB process group and starts a fresh session.
    **Restart** stops the current inferior and runs again from the beginning,
    preserving breakpoints, watches and arguments. When the session target is a
