@@ -34,6 +34,14 @@ class Cdbg {
     Gtk.Entry setupCwd
     GtkSource.View setupEnv
     Gtk.Label setupStatus
+    Gtk.TransientWindow conditionWindow
+    Gtk.Entry conditionEntry
+    Gtk.Label conditionStatus
+    String conditionNumber
+    Gtk.TransientWindow hitCountWindow
+    Gtk.Entry hitCountEntry
+    Gtk.Label hitCountStatus
+    String hitCountNumber
     Gtk.ContextMenu outputMenu
     bool breakAtStart
     bool targetSettings
@@ -401,6 +409,24 @@ class Cdbg {
     void closeWatch()
 
     bool watchCloseRequested()
+
+    void showBreakpointCondition()
+
+    void showBreakpointHitCount()
+
+    void acceptBreakpointCondition()
+
+    void acceptBreakpointHitCount()
+
+    void closeBreakpointCondition()
+
+    bool conditionCloseRequested()
+
+    void closeBreakpointHitCount()
+
+    bool hitCountCloseRequested()
+
+    String breakpointField(String number, String name)
 
     void showSetup()
 

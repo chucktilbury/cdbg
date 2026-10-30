@@ -43,11 +43,15 @@ class DebugBreakpoint {
     String path
     String line
     bool enabled
+    String condition
+    int64 ignoreCount
     DebugBreakpoint(String id, String file, String row, bool active) {
         number = id
         path = file
         line = row
         enabled = active
+        condition = ""
+        ignoreCount = 0
     }
 }
 

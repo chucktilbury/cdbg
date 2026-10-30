@@ -191,8 +191,10 @@ void Cdbg.saveState(bool layout) {
                         }
                         k = k + 1
                     }
-                    updates.append(format("{{ file = {}, line = {}, enabled = {} }},\n",
-                        Gtk.Config().quote(point.path), point.line, enabled))
+                    updates.append(format(
+                        "{{ file = {}, line = {}, enabled = {}, condition = {}, hit_count = {} }},\n",
+                        Gtk.Config().quote(point.path), point.line, enabled,
+                        Gtk.Config().quote(point.condition), point.ignoreCount))
                 }
                 i = i + 1
             }
@@ -242,6 +244,8 @@ void Cdbg.restoreBreakpoints() {
                 String file = Gtk.Config().item(stateText, stateTarget, "points", i, "file")
                 String line = Gtk.Config().item(stateText, stateTarget, "points", i, "line")
                 String enabled = Gtk.Config().item(stateText, stateTarget, "points", i, "enabled")
+                String condition = Gtk.Config().item(stateText, stateTarget, "points", i, "condition")
+                String hits = Gtk.Config().item(stateText, stateTarget, "points", i, "hit_count")
                 if (!file.startsWith("s") || !line.startsWith("i") || line.length > 8 ||
                     !identifier(byteSpan(line, 1, line.length)) || byteSpan(line, 1, line.length).toInt64() < 1 ||
                     (!enabled.equals("btrue") && !enabled.equals("bfalse"))) {
@@ -249,6 +253,17 @@ void Cdbg.restoreBreakpoints() {
                 } else {
                     file = byteSpan(file, 1, file.length)
                     line = byteSpan(line, 1, line.length)
+                    String condText = ""
+                    if (condition.startsWith("s")) { condText = byteSpan(condition, 1, condition.length) }
+                    else { if (!condition.equals("")) {
+                        stateDiagnostic(format("Invalid condition on saved breakpoint {}; ignored", i + 1))
+                    } }
+                    int64 ignore = 0
+                    if (hits.startsWith("i") && identifier(byteSpan(hits, 1, hits.length))) {
+                        ignore = byteSpan(hits, 1, hits.length).toInt64()
+                    } else { if (!hits.equals("")) {
+                        stateDiagnostic(format("Invalid hit_count on saved breakpoint {}; ignored", i + 1))
+                    } }
                     if (!System.FileSystem().isFile(file)) {
                         stateDiagnostic(format("Stale breakpoint {}:{}; skipped", file, line))
                     } else {
@@ -256,7 +271,7 @@ void Cdbg.restoreBreakpoints() {
                         if (enabled.equals("bfalse")) { command.append(" -d") }
                         restorePending = restorePending + 1
                         enqueue(format("{} {}", command, MiParser().quote(format("{}:{}", file, line))),
-                            "restore-break", format("{}:{}", file, line))
+                            "restore-break", format("{}\n{}\n{}", format("{}:{}", file, line), condText, ignore))
                     }
                 }
                 i = i + 1

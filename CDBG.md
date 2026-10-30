@@ -362,7 +362,7 @@ arguments = "one 'two words' ''"
 cwd = "/abs/path/project"
 env = "FOO=bar\nBAZ=1"
 points = [
-{ file = "/abs/path/program.cw", line = 4, enabled = true },
+{ file = "/abs/path/program.cw", line = 4, enabled = true, condition = "", hit_count = 0 },
 ]
 watches = [
 { expression = "worker.value" },
@@ -423,8 +423,10 @@ function calls are disabled in the session.
 cdbg provides bounded String/container/class field summaries, not an expandable
 object tree. Watch expressions and breakpoints for the current target are
 persisted in `.cdbg.toml`. Watches and Breakpoints tabs have context menus for
-add/delete and enable/disable/delete. LLDB, DAP, remote/attach, inferior stdin,
-register/disassembly views and embedding into cedit remain deferred.
+add/delete, enable/disable/delete, and breakpoint **Edit Condition…** /
+**Hit Count…** (GDB `-break-condition` / `-break-after`). LLDB, DAP,
+remote/attach, inferior stdin, register/disassembly views and embedding into
+cedit remain deferred.
 
 ## Debug a Cwhip app (walkthrough)
 

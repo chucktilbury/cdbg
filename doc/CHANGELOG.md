@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Breakpoints: Edit Condition… and Hit Count… (ignore count); persist
+  `condition` / `hit_count` on saved points and restore via MI.
 - Session Preferences: optional inferior working directory and `KEY=VALUE`
   environment lines (Apply → `-environment-cd` / `-environment-set-variable` on
   the next Run/Restart/Load; persisted per target in `.cdbg.toml`).
