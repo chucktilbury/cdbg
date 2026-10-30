@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Disable GTK's default F10 menubar accelerator so **Step Over** (F10) runs on
+  the first keypress. The earlier same-line auto-next still applies when GDB
+  stops again on the same source line; looper-style programs already advance
+  one line per `-exec-next`.
 - Step Over continues through same-line PC stops so one press advances one
   source statement. Step Into still skips thin GC/trace prologues, but opens
   runtime frames that have debug info and are real work (for example
