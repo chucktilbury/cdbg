@@ -1619,8 +1619,9 @@ def main() -> None:
         env = environment(work)
         if args.sourceview_languages:
             env["CDBG_SOURCEVIEW_LANGUAGES"] = str(args.sourceview_languages.resolve())
-        shutil.copy(args.source.parent / "mi.cw", work / "mi.cw")
-        shutil.copy(args.source.parent / "terminal.cw", work / "terminal.cw")
+        for extra in args.source.parent.glob("*.cw"):
+            if extra.name != args.source.name:
+                shutil.copy(extra, work / extra.name)
         source = work / "checks.cw"
         binary = work / "checks"
         if args.group == "parser":
