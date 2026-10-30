@@ -63,6 +63,13 @@ void Cdbg.readState() {
         int64 width = stateNumber("width", 1100, 640, 3840)
         window.setDefaultSize(width, stateNumber("height", 760, 400, 2160))
         body.setPosition(stateNumber("pane", 600, 100, width - 100))
+        int64 height = stateNumber("height", 760, 400, 2160)
+        if (rightColumn != null) {
+            rightColumn.setPosition(stateNumber("right_split", 420, 80, height - 80))
+        }
+        if (topMid != null) {
+            topMid.setPosition(stateNumber("mid_split", 220, 60, height - 60))
+        }
         if (bottomRow != null) {
             bottomRow.setPosition(stateNumber("bottom_split", 400, 80, width - 80))
         }
@@ -149,11 +156,15 @@ void Cdbg.saveState(bool layout) {
         if (defaultChanged) { updates.append(format("break_at_start = {}\n", breakAtStart)) }
         if (layout) {
             int64 bottom = 400
+            int64 right = 420
+            int64 mid = 220
             if (bottomRow != null) { bottom = bottomRow.position() }
-            updates.append(format("width = {}\nheight = {}\nmaximized = {}\npane = {}\nbottom_split = {}\nshow_locals = {}\nshow_watches = {}\nshow_stack = {}\nshow_breaks = {}\nshow_output = {}\nshow_console = {}\nshow_runtime = {}\n",
+            if (rightColumn != null) { right = rightColumn.position() }
+            if (topMid != null) { mid = topMid.position() }
+            updates.append(format("width = {}\nheight = {}\nmaximized = {}\npane = {}\nright_split = {}\nmid_split = {}\nbottom_split = {}\nshow_locals = {}\nshow_watches = {}\nshow_stack = {}\nshow_breaks = {}\nshow_output = {}\nshow_console = {}\nshow_runtime = {}\n",
                 window.defaultWidth(), window.defaultHeight(), window.maximized(), body.position(),
-                bottom, showLocals, showWatches, showStack, showBreaks, showOutput, showConsole,
-                showRuntime))
+                right, mid, bottom, showLocals, showWatches, showStack, showBreaks, showOutput,
+                showConsole, showRuntime))
         }
         bool points = loaded && !restoringBreakpoints
         if (!stateTarget.equals("") && (points || targetSettings)) {

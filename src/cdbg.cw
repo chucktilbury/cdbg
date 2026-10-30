@@ -60,7 +60,8 @@ class Cdbg {
     String startNumber
     bool atStart
     Gtk.Paned body
-    Gtk.Box rightColumn
+    Gtk.Paned rightColumn
+    Gtk.Paned topMid
     Gtk.Notebook topInspection
     Gtk.Notebook midInspection
     Gtk.Paned bottomRow

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Persist right-column vertical sashes (`right_split`, `mid_split`) using
+  nested vertical `Gtk.Paned` (requires cwhip vertical Paned).
 - Locals/Watches: line activate drills into a watch for the symbol; context
   menus Add Watch for Symbol and Copy Friendly Value.
 - Breakpoints: Edit Condition… and Hit Count… (ignore count); persist

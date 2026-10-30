@@ -349,6 +349,8 @@ width = 1100
 height = 760
 maximized = false
 pane = 600
+right_split = 420
+mid_split = 220
 bottom_split = 400
 show_locals = true
 show_watches = true
@@ -400,10 +402,11 @@ continues. Up to 256 resolved locations per target and a 256 KiB file are
 supported; limits are reported rather than silently ignored.
 
 Quit also saves window width/height, maximized state, the source/right divider
-(`pane`), the bottom output/console divider (`bottom_split`), and View-menu
-panel visibility flags. Startup clamps size to 640–3840 by 400–2160 and the
-main divider to 100 through width minus 100; GTK may further constrain
-dimensions to the available screen. An obsolete `inspector` key is ignored.
+(`pane`), right-column vertical dividers (`right_split`, `mid_split`), the
+bottom output/console divider (`bottom_split`), and View-menu panel visibility
+flags. Startup clamps size to 640–3840 by 400–2160 and the main divider to 100
+through width minus 100; GTK may further constrain dimensions to the available
+screen. An obsolete `inspector` key is ignored.
 Notebook headers scroll when necessary, so tab titles do not force the divider
 away from its saved position. A malformed/unreadable file falls back to
 defaults, logs a diagnostic and disables saving to preserve the original file
