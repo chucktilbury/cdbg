@@ -194,7 +194,8 @@ launched in cdbg's current working directory.
    loaded, Apply sets this directory's default Break at start.
    **Appearance** (font, size, tab width, source line numbers) and **Keyboard**
    (searchable Record/Reset/Disable bindings) auto-save to
-   `$XDG_CONFIG_HOME/cwhip/cdbg.toml`.
+   `$XDG_CONFIG_HOME/cwhip/cdbg.toml`. Keyboard lists View panel commands with
+   empty defaults so stepping F-keys stay free unless you bind them.
 
    Break at start inserts a temporary GDB breakpoint on the entry symbol for each
    new run, so it never accumulates duplicates and is not saved with the user's
@@ -208,8 +209,10 @@ launched in cdbg's current working directory.
    tabs): Locals/Watches/Runtime Values share a top notebook; Stack/Breakpoints
    share a middle notebook; Program Output and Debugger Console sit side by
    side at the bottom. **View** menu check items show or hide each pane
-   (Runtime Values is hidden by default). At each stop the source
-   location/current line, Locals / Arguments, Stack, and Watches are refreshed.
+   (Runtime Values is hidden by default). View toggles have no default
+   shortcuts; assign them under **Preferences > Keyboard** if wanted.
+   At each stop the source location/current line, Locals / Arguments, Stack,
+   and Watches are refreshed.
    Right-click the **Watches (Cwhip / Native)** tab and choose **Add Watch…**.
    The parented dialog has an expression entry and **Add** / **Cancel**
    buttons. Out-of-scope/evaluation errors are displayed alongside the

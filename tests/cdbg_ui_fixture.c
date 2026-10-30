@@ -158,7 +158,7 @@ static GtkWidget *notebook_at(int index) {
     int depth = 0;
     stack[depth++] = GTK_WIDGET(window);
     /* Breadth-insensitive preorder walk; the source notebook precedes the
-     * inspector notebook in the window's Paned. */
+     * right-hand inspection notebooks (Locals/Stack/Output panes). */
     while (depth > 0) {
         GtkWidget *widget = stack[--depth];
         if (GTK_IS_NOTEBOOK(widget)) g_ptr_array_add(found, widget);
@@ -181,7 +181,7 @@ static char *text_arg(void *text) {
     return length ? g_strndup(bytes, length) : g_strdup("");
 }
 
-/* Every source and inspector notebook uses the bordered tab style. */
+/* Every source and inspection notebook uses the bordered tab style. */
 bool cdbg_fixture_bordered(void *self) {
     (void)self;
     GtkWidget *source = notebook_at(0);

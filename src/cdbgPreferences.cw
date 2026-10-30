@@ -108,7 +108,7 @@ void Cdbg.showPreferences() {
         preferencesWindow.present()
     }
 
-// Keep showSetup as an alias so existing menu/test call sites open Session.
+// Alias for session tests that still open Preferences via setupItem / showSetup.
 void Cdbg.showSetup() {
         showPreferences()
         setupStart.setActive(breakAtStart)

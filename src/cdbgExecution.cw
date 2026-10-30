@@ -16,10 +16,10 @@ void Cdbg.resume() {
         }
     }
 
-// Every fresh run resends the current arguments, so Setup changes apply to
-// the next Run/Restart. "Break at start" is a temporary breakpoint on the
-// entry symbol: for Cwhip programs `main` is the generated start block, so
-// it stops on the `start {` line; native programs stop in main().
+// Every fresh run resends the current arguments, so Session Preferences
+// Apply takes effect on the next Run/Restart. "Break at start" is a temporary
+// breakpoint on the entry symbol: for Cwhip programs `main` is the generated
+// start block, so it stops on the `start {` line; native programs stop in main().
 void Cdbg.startRun() {
         String args = "-exec-arguments"
         int64 i = 0
