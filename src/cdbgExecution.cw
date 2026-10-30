@@ -28,6 +28,16 @@ void Cdbg.startRun() {
             i = i + 1
         }
         enqueue(args, "arguments", "")
+        if (!sessionCwd.equals("")) {
+            enqueue(format("-environment-cd {}", MiParser().quote(sessionCwd)), "environment", "")
+        }
+        i = 0
+        while (i < environmentPairs.length) {
+            EnvironmentPair item = environmentPairs[i] as EnvironmentPair
+            enqueue(format("-environment-set-variable {} {}", MiParser().quote(item.name),
+                MiParser().quote(item.value)), "environment", "")
+            i = i + 1
+        }
         runHits = []
         i = 0
         while (i < breakpointEntries.length) {

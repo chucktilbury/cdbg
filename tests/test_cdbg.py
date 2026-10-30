@@ -103,6 +103,15 @@ start {
         "trailing backslash rejected")
     test.require(args.parse("  ") && args.values.length == 0, "blank arguments")
     test.require(parser.quote("a \"b\"\\").equals("\"a \\\"b\\\"\\\\\""), "MI argument quoting")
+    EnvironmentList env = EnvironmentList()
+    test.require(env.parse("FOO=bar\n# note\n\nBAZ=a=b") && env.pairs.length == 2 &&
+        (env.pairs[0] as EnvironmentPair).name.equals("FOO") &&
+        (env.pairs[0] as EnvironmentPair).value.equals("bar") &&
+        (env.pairs[1] as EnvironmentPair).name.equals("BAZ") &&
+        (env.pairs[1] as EnvironmentPair).value.equals("a=b"), "environment KEY=VALUE lines")
+    test.require(!env.parse("=nope") && env.error.contains("expected KEY=VALUE"), "environment needs name")
+    test.require(!env.parse("9BAD=x") && env.error.contains("invalid environment name"),
+        "environment name must start with a letter or underscore")
     print("true")
 }
 '''
@@ -932,6 +941,20 @@ class DebugChecks {
                 require(ui.arguments.length == 4 && (ui.arguments[1] as String).equals("two words") &&
                     (ui.arguments[2] as String).equals("") && (ui.arguments[3] as String).equals("it's") &&
                     ui.status.text().contains("next Run"), "arguments parsed with shell quoting")
+                ui.menu.activateItem(ui.setupItem)
+                ui.setupCwd.setText(System.FileSystem().getCwd())
+                ui.setupEnv.setText("CDBG_SESSION_ENV=1\n# comment\nOTHER=value=ok")
+                require(DebugUiFixture().setup(1, args, "Apply") &&
+                    ui.sessionCwd.equals(System.FileSystem().getCwd()) &&
+                    ui.environmentPairs.length == 2 &&
+                    (ui.environmentPairs[0] as EnvironmentPair).name.equals("CDBG_SESSION_ENV"),
+                    "Session Apply accepts cwd and environment")
+                ui.menu.activateItem(ui.setupItem)
+                ui.setupCwd.setText("/no/such/cdbg/cwd")
+                require(!DebugUiFixture().setup(1, args, "Apply") &&
+                    ui.setupStatus.text().contains("existing directory") &&
+                    ui.sessionCwd.equals(System.FileSystem().getCwd()),
+                    "invalid cwd rejected; previous cwd kept")
                 ui.menu.activateItem(ui.setupItem)
                 require(DebugUiFixture().setup(0, "changed", "Cancel") && ui.breakAtStart &&
                     ui.arguments.length == 4, "Cancel changes nothing")

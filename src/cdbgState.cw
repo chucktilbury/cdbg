@@ -112,6 +112,30 @@ void Cdbg.loadTargetSettings() {
                 targetSettings = true
             } else { stateDiagnostic(format("Invalid saved arguments ({}); ignored", parsed.error)) }
         } else { if (!saved.equals("")) { stateDiagnostic("Saved arguments must be a string; ignored") } }
+        sessionCwd = ""
+        String cwdSaved = Gtk.Config().value(stateText, stateTarget, "cwd")
+        if (cwdSaved.startsWith("s")) {
+            String path = byteSpan(cwdSaved, 1, cwdSaved.length)
+            String absolute = System.FileSystem().absolutePath(path)
+            if (absolute.equals("")) { absolute = path }
+            if (System.FileSystem().isDir(absolute)) {
+                sessionCwd = absolute
+                targetSettings = true
+            } else {
+                stateDiagnostic(format("Saved working directory missing or not a directory ({}); ignored", path))
+            }
+        } else { if (!cwdSaved.equals("")) { stateDiagnostic("Saved cwd must be a string; ignored") } }
+        environmentText = ""
+        environmentPairs = []
+        String envSaved = Gtk.Config().value(stateText, stateTarget, "env")
+        if (envSaved.startsWith("s")) {
+            EnvironmentList env = EnvironmentList()
+            if (env.parse(byteSpan(envSaved, 1, envSaved.length))) {
+                environmentPairs = env.pairs
+                environmentText = env.display(env.pairs)
+                targetSettings = true
+            } else { stateDiagnostic(format("Invalid saved environment ({}); ignored", env.error)) }
+        } else { if (!envSaved.equals("")) { stateDiagnostic("Saved env must be a string; ignored") } }
         if (cliPending) {
             arguments = cliArguments
             cliPending = false
@@ -135,8 +159,9 @@ void Cdbg.saveState(bool layout) {
         if (!stateTarget.equals("") && (points || targetSettings)) {
             updates.append(format("[{}]\n", Gtk.Config().quote(stateTarget)))
             if (targetSettings) {
-                updates.append(format("break_at_start = {}\narguments = {}\n", breakAtStart,
-                    Gtk.Config().quote(argumentText)))
+                updates.append(format("break_at_start = {}\narguments = {}\ncwd = {}\nenv = {}\n",
+                    breakAtStart, Gtk.Config().quote(argumentText), Gtk.Config().quote(sessionCwd),
+                    Gtk.Config().quote(environmentText)))
             }
         }
         if (points && !stateTarget.equals("")) {

@@ -10,8 +10,8 @@ void Cdbg.closeWatch() { watchWindow.setVisible(false) }
 bool Cdbg.watchCloseRequested() { closeWatch()
         return(true) }
 
-// Apply never restarts a running program: arguments and Break at start
-// take effect on the next Run (from not started), Restart or Load.
+// Apply never restarts a running program: arguments, cwd, env and Break at
+// start take effect on the next Run (from not started), Restart or Load.
 void Cdbg.applySetup() {
         ArgumentList parsed = ArgumentList()
         if (!parsed.parse(setupArguments.text())) {
@@ -20,13 +20,38 @@ void Cdbg.applySetup() {
             status.setText(message)
             return
         }
-        if (stateTarget.equals("") && parsed.values.length > 0) {
-            setupStatus.setText("Load a target before setting program arguments")
+        EnvironmentList env = EnvironmentList()
+        if (!env.parse(setupEnv.text())) {
+            String message = format("Invalid environment: {}; previous environment kept", env.error)
+            setupStatus.setText(message)
+            status.setText(message)
+            return
+        }
+        String cwd = setupCwd.text().trim()
+        if (!cwd.equals("")) {
+            String absolute = System.FileSystem().absolutePath(cwd)
+            if (absolute.equals("")) { absolute = cwd }
+            if (!System.FileSystem().isDir(absolute)) {
+                String message = format("Working directory must be an existing directory: {}", cwd)
+                setupStatus.setText(message)
+                status.setText(message)
+                return
+            }
+            cwd = absolute
+        }
+        if (stateTarget.equals("") && (parsed.values.length > 0 || env.pairs.length > 0 ||
+            !cwd.equals(""))) {
+            setupStatus.setText("Load a target before setting program arguments, cwd or environment")
             return
         }
         breakAtStart = setupStart.active()
         arguments = parsed.values
         argumentText = parsed.display(parsed.values)
+        sessionCwd = cwd
+        environmentPairs = env.pairs
+        environmentText = env.display(env.pairs)
+        setupCwd.setText(sessionCwd)
+        setupEnv.setText(environmentText)
         String message = "Session applied; takes effect on the next Run, Restart or Load"
         if (running) {
             message = "Session applied; the running program is unchanged; takes effect on the next Run, Restart or Load"

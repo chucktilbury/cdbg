@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Session Preferences: optional inferior working directory and `KEY=VALUE`
+  environment lines (Apply → `-environment-cd` / `-environment-set-variable` on
+  the next Run/Restart/Load; persisted per target in `.cdbg.toml`).
 - Clarify Session Preferences / View-keyboard docs after the multi-pane layout
   and Preferences work; refresh fixture comments for inspection notebooks.
   View panel toggles stay unbound by default (assign under Keyboard).

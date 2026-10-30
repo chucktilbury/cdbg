@@ -31,11 +31,16 @@ class Cdbg {
     // Session page controls inside Preferences (kept names for the UI fixture).
     Gtk.CheckButton setupStart
     Gtk.Entry setupArguments
+    Gtk.Entry setupCwd
+    GtkSource.View setupEnv
     Gtk.Label setupStatus
     Gtk.ContextMenu outputMenu
     bool breakAtStart
     bool targetSettings
     String argumentText
+    String sessionCwd
+    String environmentText
+    list environmentPairs
     list cliArguments
     bool cliPending
     String startBreakpoint
@@ -205,6 +210,9 @@ class Cdbg {
         stackFrames = []
         breakAtStart = settings.defaultBreakAtStart
         argumentText = ""
+        sessionCwd = ""
+        environmentText = ""
+        environmentPairs = []
         cliArguments = []
         startBreakpoint = ""
         startNumber = ""
