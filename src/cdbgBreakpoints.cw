@@ -213,7 +213,12 @@ void Cdbg.breakpointLocation(MiValue item, String parent, bool enabled) {
         if (path.equals("")) { path = item.field("file").text }
         String line = item.field("line").text
         if (!path.equals("") && identifier(line)) {
-            breakpointLocations.append(DebugBreakpoint(parent, path, line, enabled))
+            DebugBreakpoint point = DebugBreakpoint(parent, path, line, enabled)
+            point.condition = item.field("cond").text
+            if (identifier(item.field("ignore").text)) {
+                point.ignoreCount = item.field("ignore").text.toInt64()
+            }
+            breakpointLocations.append(point)
         }
         MiValue locations = item.field("locations")
         int64 i = 0
@@ -238,8 +243,96 @@ String Cdbg.breakpointSummary(MiValue item, bool enabled) {
         String text = format("{} installed {}", state, where)
         if (!item.field("func").text.equals("")) { text.append(format(" in {}", item.field("func").text)) }
         text.append(format(" hits {}", item.field("times").text))
+        if (!item.field("cond").text.equals("")) {
+            text.append(format(" if {}", item.field("cond").text))
+        }
+        if (identifier(item.field("ignore").text) && item.field("ignore").text.toInt64() > 0) {
+            text.append(format(" ignore {}", item.field("ignore").text))
+        }
         return(text)
     }
+
+void Cdbg.showBreakpointCondition() {
+        String number = selectedBreakpointNumber()
+        if (number.equals("") || !identifier(number)) {
+            status.setText("Select a breakpoint to edit its condition")
+            return
+        }
+        if (!breakpointReady()) { return }
+        breakMenu.setVisible(false)
+        conditionNumber = number
+        conditionEntry.setText(breakpointField(number, "cond"))
+        conditionStatus.setText("")
+        conditionWindow.setVisible(true)
+        conditionWindow.present()
+        conditionEntry.focus()
+    }
+
+void Cdbg.showBreakpointHitCount() {
+        String number = selectedBreakpointNumber()
+        if (number.equals("") || !identifier(number)) {
+            status.setText("Select a breakpoint to edit its hit count")
+            return
+        }
+        if (!breakpointReady()) { return }
+        breakMenu.setVisible(false)
+        hitCountNumber = number
+        hitCountEntry.setText(breakpointField(number, "ignore"))
+        hitCountStatus.setText("")
+        hitCountWindow.setVisible(true)
+        hitCountWindow.present()
+        hitCountEntry.focus()
+    }
+
+String Cdbg.breakpointField(String number, String name) {
+        int64 i = 0
+        while (i < breakpointEntries.length) {
+            MiValue item = breakpointEntries[i] as MiValue
+            if (item.field("number").text.equals(number) ||
+                (item.field("number").text.split(".")[0] as String).equals(number)) {
+                return(item.field(name).text)
+            }
+            i = i + 1
+        }
+        return("")
+    }
+
+void Cdbg.acceptBreakpointCondition() {
+        String expression = conditionEntry.text().trim()
+        if (expression.length > 1024) {
+            conditionStatus.setText("Condition must be at most 1024 bytes")
+            return
+        }
+        if (conditionNumber.equals("")) { return }
+        if (expression.equals("")) {
+            enqueue(format("-break-condition {}", conditionNumber), "break", "")
+        } else {
+            enqueue(format("-break-condition {} {}", conditionNumber, MiParser().quote(expression)),
+                "break", "")
+        }
+        requestBreakpoints()
+        conditionWindow.setVisible(false)
+    }
+
+void Cdbg.acceptBreakpointHitCount() {
+        String text = hitCountEntry.text().trim()
+        if (text.equals("")) { text = "0" }
+        if (!identifier(text) || text.toInt64() < 0 || text.toInt64() > 1000000) {
+            hitCountStatus.setText("Hit count ignore must be an integer from 0 to 1000000")
+            return
+        }
+        if (hitCountNumber.equals("")) { return }
+        enqueue(format("-break-after {} {}", hitCountNumber, text), "break", "")
+        requestBreakpoints()
+        hitCountWindow.setVisible(false)
+    }
+
+void Cdbg.closeBreakpointCondition() { conditionWindow.setVisible(false) }
+bool Cdbg.conditionCloseRequested() { closeBreakpointCondition()
+        return(true) }
+void Cdbg.closeBreakpointHitCount() { hitCountWindow.setVisible(false) }
+bool Cdbg.hitCountCloseRequested() { closeBreakpointHitCount()
+        return(true) }
 
 // Lists enabled breakpoints whose hit count did not change during the run.
 int64 Cdbg.reportUnreached() {

@@ -53,6 +53,8 @@ void Cdbg.buildInspectionLayout(Gtk.Paned host) {
         breakMenu = Gtk.ContextMenu(breaks.widget())
         disableBreakItem = breakMenu.addItem("Disable Breakpoint", _self().disableSelectedBreakpoint)
         enableBreakItem = breakMenu.addItem("Enable Breakpoint", _self().enableSelectedBreakpoint)
+        breakMenu.addItem("Edit Condition...", _self().showBreakpointCondition)
+        breakMenu.addItem("Hit Count...", _self().showBreakpointHitCount)
         deleteBreakItem = breakMenu.addItem("Delete Breakpoint", _self().deleteSelectedBreakpoint)
         watches.setLineSelection(true)
         watches.onLineActivated(_self().watchClicked)

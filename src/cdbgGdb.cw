@@ -83,6 +83,19 @@ void Cdbg.response(MiParser record) {
             maybeRebuildRun()
         }
         if (done.purpose.equals("restore-break")) {
+            MiValue point = record.data.field("bkpt")
+            String number = point.field("number").text
+            list parts = done.expression.split("\n")
+            String condText = ""
+            String hitsText = "0"
+            if (parts.length > 1) { condText = parts[1] as String }
+            if (parts.length > 2) { hitsText = parts[2] as String }
+            if (!condText.equals("") && !number.equals("")) {
+                enqueue(format("-break-condition {} {}", number, MiParser().quote(condText)), "break", "")
+            }
+            if (identifier(hitsText) && hitsText.toInt64() > 0 && !number.equals("")) {
+                enqueue(format("-break-after {} {}", number, hitsText), "break", "")
+            }
             restorePending = restorePending - 1
             if (restorePending == 0) {
                 restoringBreakpoints = false
