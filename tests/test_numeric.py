@@ -197,8 +197,9 @@ def main():
         print("All ten numeric types: GDB locals/watches, boxed tags and runtime extraction passed",
               flush=True)
 
-        for name in ("mi.cw", "terminal.cw"):
-            shutil.copy(args.source.parent / name, work / name)
+        for extra in args.source.parent.glob("*.cw"):
+            if extra.name != args.source.name:
+                shutil.copy(extra, work / extra.name)
         driver_source = work / "checks.cw"
         driver_source.write_text(args.source.read_text().split("\nstart {")[0] + DRIVER)
         driver = work / "checks"

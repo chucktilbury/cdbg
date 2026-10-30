@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Split the monolithic `cdbg.cw` into typed helpers and method modules
+  (`debugTypes.cw`, `cdbgActivate.cw`, `cdbgTarget.cw`, `cdbgFind.cw`,
+  `cdbgState.cw`, `cdbgSession.cw`, `cdbgExecution.cw`, `cdbgBreakpoints.cw`,
+  `cdbgWatches.cw`, `cdbgSource.cw`, `cdbgGdb.cw`, `cdbgUi.cw`) so the debugger
+  sources match cedit's layout and stay easier to read.
 - When Step Into first opens a runtime source tab, defer centering until after
   the notebook page is mapped so the stop line is highlighted on the first
   visit (not only on later stops in that file).
