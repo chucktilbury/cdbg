@@ -210,13 +210,13 @@ launched in cdbg's current working directory.
    stripped binary), the Debugger Console reports "Break at start unavailable"
    and the program runs without it. cdbg sets no other automatic breakpoint.
 4. The right-hand side is a fixed multi-pane layout (not one notebook of seven
-   tabs): Locals/Watches/Runtime Values share a top notebook; Stack/Breakpoints
-   share a middle notebook; Program Output and Debugger Console sit side by
-   side at the bottom. **View** menu check items show or hide each pane
-   (Runtime Values is hidden by default). View toggles have no default
-   shortcuts; assign them under **Preferences > Keyboard** if wanted.
+   tabs): Locals/Watches/Runtime Values share a top notebook; Stack/Breakpoints/
+   Threads share a middle notebook; Program Output and Debugger Console sit
+   side by side at the bottom. **View** menu check items show or hide each pane
+   (Runtime Values and Threads are hidden by default). View toggles have no
+   default shortcuts; assign them under **Preferences > Keyboard** if wanted.
    At each stop the source location/current line, Locals / Arguments, Stack,
-   and Watches are refreshed.
+   Threads, and Watches are refreshed.
    Right-click the **Watches (Cwhip / Native)** tab and choose **Add Watch…**.
    The parented dialog has an expression entry and **Add** / **Cancel**
    buttons. Out-of-scope/evaluation errors are displayed alongside the
@@ -224,9 +224,11 @@ launched in cdbg's current working directory.
    adds a watch for the left-hand name; **Copy Friendly Value** copies the
    right-hand summary.
 5. Single-click a **Stack** entry to inspect that frame's source, locals and
-   watches. This browses the stack without executing. Step/continue operations
-   restore the actual execution frame (frame zero) first, and the next stop
-   brings the source view back to the executing file and line.
+   watches. Single-click a **Threads** entry to select that thread
+   (`-thread-select`) then refresh stack/locals/watches. Both are browse-only
+   (no thread create/control). Step/continue operations restore the actual
+   execution frame (frame zero) first, and the next stop brings the source
+   view back to the executing file and line.
 
 ### Cwhip values and runtime values
 
@@ -359,6 +361,7 @@ show_breaks = true
 show_output = true
 show_console = true
 show_runtime = false
+show_threads = false
 
 ["/abs/path/program.cw"]       # canonical executable, or .cw for cdbg file.cw
 break_at_start = false
@@ -416,14 +419,15 @@ clamped; invalid saved arguments are ignored with a diagnostic.
 ## Boundaries
 
 Only local launch is supported: no remote debugging, attach, DAP, LLDB,
-multitarget sessions, thread-selection UI, disassembly or register view yet.
-Session Preferences can set inferior working directory and environment
-variables for the next run; unsetting variables is not supported. Inferior
-interactive stdin/terminal emulation is not provided: the output PTY supplies
-no user input, so programs waiting on stdin must be paused/ended. The stack
-view is capped at 31 frames. Watches use the read-only subset of GDB
-expressions described above; calls and mutations are rejected and inferior
-function calls are disabled in the session.
+multitarget sessions, disassembly or register view yet. The Threads pane is
+browse/select only (`-thread-info` / `-thread-select`); there is no thread
+create or control UI. Session Preferences can set inferior working directory
+and environment variables for the next run; unsetting variables is not
+supported. Inferior interactive stdin/terminal emulation is not provided: the
+output PTY supplies no user input, so programs waiting on stdin must be
+paused/ended. The stack view is capped at 31 frames. Watches use the read-only
+subset of GDB expressions described above; calls and mutations are rejected and
+inferior function calls are disabled in the session.
 
 cdbg provides bounded String/container/class field summaries, not an expandable
 object tree. Watch expressions and breakpoints for the current target are

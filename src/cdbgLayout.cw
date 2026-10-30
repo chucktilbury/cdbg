@@ -31,6 +31,7 @@ void Cdbg.buildInspectionLayout(Gtk.Paned host) {
         runtimeValues = pane()
         stack = pane()
         breaks = pane()
+        threads = pane()
         console = pane()
         programOutput = pane()
         locals.setLineSelection(true)
@@ -40,6 +41,7 @@ void Cdbg.buildInspectionLayout(Gtk.Paned host) {
         runtimeScroll = scroll(runtimeValues)
         stackScroll = scroll(stack)
         breaksScroll = scroll(breaks)
+        threadsScroll = scroll(threads)
         outputNotebook = Gtk.Notebook()
         outputNotebook.setBorderedTabs()
         outputNotebook.setScrollable(true)
@@ -58,6 +60,9 @@ void Cdbg.buildInspectionLayout(Gtk.Paned host) {
         stack.onLineActivated(_self().stackClicked)
         breaks.setLineSelection(true)
         breaks.onLineActivated(_self().breakpointClicked)
+        threads.setLineSelection(true)
+        threads.onLineActivated(_self().threadClicked)
+        threadIds = []
         breakMenu = Gtk.ContextMenu(breaks.widget())
         disableBreakItem = breakMenu.addItem("Disable Breakpoint", _self().disableSelectedBreakpoint)
         enableBreakItem = breakMenu.addItem("Enable Breakpoint", _self().enableSelectedBreakpoint)
@@ -85,11 +90,13 @@ void Cdbg.buildInspectionLayout(Gtk.Paned host) {
         showOutput = true
         showConsole = true
         showRuntime = false
+        showThreads = false
         localsAttached = false
         watchesAttached = false
         runtimeAttached = false
         stackAttached = false
         breaksAttached = false
+        threadsAttached = false
         outputAttached = false
         consoleAttached = false
         syncInspectionPages()
@@ -101,6 +108,7 @@ void Cdbg.addViewMenu() {
         viewWatchesItem = menu.addCheckItem(viewMenu, "Watches", showWatches, _self().viewWatchesChecked)
         viewStackItem = menu.addCheckItem(viewMenu, "Stack", showStack, _self().viewStackChecked)
         viewBreaksItem = menu.addCheckItem(viewMenu, "Breakpoints", showBreaks, _self().viewBreaksChecked)
+        viewThreadsItem = menu.addCheckItem(viewMenu, "Threads", showThreads, _self().viewThreadsChecked)
         viewOutputItem = menu.addCheckItem(viewMenu, "Program Output", showOutput, _self().viewOutputChecked)
         viewConsoleItem = menu.addCheckItem(viewMenu, "Debugger Console", showConsole, _self().viewConsoleChecked)
         viewRuntimeItem = menu.addCheckItem(viewMenu, "Runtime Values", showRuntime, _self().viewRuntimeChecked)
@@ -110,6 +118,7 @@ void Cdbg.viewLocalsChecked(bool active) { setPanelVisible("locals", active) }
 void Cdbg.viewWatchesChecked(bool active) { setPanelVisible("watches", active) }
 void Cdbg.viewStackChecked(bool active) { setPanelVisible("stack", active) }
 void Cdbg.viewBreaksChecked(bool active) { setPanelVisible("breaks", active) }
+void Cdbg.viewThreadsChecked(bool active) { setPanelVisible("threads", active) }
 void Cdbg.viewOutputChecked(bool active) { setPanelVisible("output", active) }
 void Cdbg.viewConsoleChecked(bool active) { setPanelVisible("console", active) }
 void Cdbg.viewRuntimeChecked(bool active) { setPanelVisible("runtime", active) }
@@ -119,6 +128,7 @@ void Cdbg.setPanelVisible(String name, bool active) {
         if (name.equals("watches")) { showWatches = active }
         if (name.equals("stack")) { showStack = active }
         if (name.equals("breaks")) { showBreaks = active }
+        if (name.equals("threads")) { showThreads = active }
         if (name.equals("output")) { showOutput = active }
         if (name.equals("console")) { showConsole = active }
         if (name.equals("runtime")) { showRuntime = active }
@@ -131,6 +141,7 @@ void Cdbg.togglePanel(String name) {
         if (name.equals("watches")) { setPanelVisible(name, !showWatches) }
         if (name.equals("stack")) { setPanelVisible(name, !showStack) }
         if (name.equals("breaks")) { setPanelVisible(name, !showBreaks) }
+        if (name.equals("threads")) { setPanelVisible(name, !showThreads) }
         if (name.equals("output")) { setPanelVisible(name, !showOutput) }
         if (name.equals("console")) { setPanelVisible(name, !showConsole) }
         if (name.equals("runtime")) { setPanelVisible(name, !showRuntime) }
@@ -142,6 +153,7 @@ void Cdbg.syncViewMenuChecks() {
         menu.setItemChecked(viewWatchesItem, showWatches)
         menu.setItemChecked(viewStackItem, showStack)
         menu.setItemChecked(viewBreaksItem, showBreaks)
+        menu.setItemChecked(viewThreadsItem, showThreads)
         menu.setItemChecked(viewOutputItem, showOutput)
         menu.setItemChecked(viewConsoleItem, showConsole)
         menu.setItemChecked(viewRuntimeItem, showRuntime)
@@ -176,6 +188,10 @@ void Cdbg.syncInspectionPages() {
         if (showBreaks != breaksAttached) {
             syncPage(midInspection, breaksScroll, "Breakpoints", showBreaks, breaksAttached)
             breaksAttached = showBreaks
+        }
+        if (showThreads != threadsAttached) {
+            syncPage(midInspection, threadsScroll, "Threads", showThreads, threadsAttached)
+            threadsAttached = showThreads
         }
         if (showOutput != outputAttached) {
             syncPage(outputNotebook, outputScroll, "Program Output", showOutput, outputAttached)

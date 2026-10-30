@@ -34,7 +34,8 @@ class CdbgSettings {
             CommandBinding("view-breaks", "Show Breakpoints", ""),
             CommandBinding("view-output", "Show Program Output", ""),
             CommandBinding("view-console", "Show Debugger Console", ""),
-            CommandBinding("view-runtime", "Show Runtime Values", "")
+            CommandBinding("view-runtime", "Show Runtime Values", ""),
+            CommandBinding("view-threads", "Show Threads", "")
         ]
         original = ""
         errors = ""

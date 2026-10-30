@@ -112,13 +112,19 @@ void Cdbg.execute(String command, String label) {
         int64 i = 0
         while (i < requests.length) {
             DebugRequest request = requests[i] as DebugRequest
-            if (request.purpose.equals("frame")) { restoreFrame = true }
-            if (!inspection(request) && !request.purpose.equals("frame")) { kept.append(request) }
+            if (request.purpose.equals("frame") || request.purpose.equals("thread")) {
+                restoreFrame = true
+            }
+            if (!inspection(request) && !request.purpose.equals("frame") &&
+                !request.purpose.equals("thread")) { kept.append(request) }
             i = i + 1
         }
         requests = kept
-        if (active != null && (inspection(active) || active.purpose.equals("frame"))) {
-            if (active.purpose.equals("frame")) { restoreFrame = true }
+        if (active != null && (inspection(active) || active.purpose.equals("frame") ||
+            active.purpose.equals("thread"))) {
+            if (active.purpose.equals("frame") || active.purpose.equals("thread")) {
+                restoreFrame = true
+            }
             active.purpose = "stale"
         }
         executing = true
