@@ -163,8 +163,12 @@ launched in cdbg's current working directory.
    **Step Out** (Shift+F11) and **Pause** use GDB's
    run/continue/step/next/finish/interrupt commands. Controls reflect running
    versus stopped state. On a Cwhip (`.cw`) session, **Step Into** finishes out
-   of runtime/native frames until the next `.cw` stop (capped; the status notes
-   how many frames were skipped). Pure C sessions keep every stop. **File >
+   of thin GC/trace prologues and frames with no source until the next `.cw`
+   stop or a runtime frame that has debug info and is real work (for example
+   `cwhip_string_format_new` when stepping into `print`/`format`; capped; the
+   status notes how many frames were skipped). **Step Over** continues through
+   extra same-line stops so one press advances one source statement. Pure C
+   sessions keep every stop. **File >
    Load Executable…** ends the old GDB process group and starts a fresh session.
    **Restart** stops the current inferior and runs again from the beginning,
    preserving breakpoints, watches and arguments. When the session target is a
@@ -263,9 +267,11 @@ be outstanding; a second press before GDB reports `*running`/`*stopped` is not
 sent and the status line says it was ignored.
 The stopped status includes GDB's stop reason and program counter. Consecutive
 stops at the same file/line/function explicitly say **same source line** and
-show the previous PC. On Cwhip sessions, Step Into finishes out of non-`.cw`
-frames until a Cwhip stop (status notes skipped runtime frames). Step Over
-stays at the current call depth. Pure C sessions keep every stop.
+show the previous PC when Step Over did not already absorb them. On Cwhip
+sessions, Step Into finishes out of thin runtime prologues and sourceless
+frames until a Cwhip stop or an openable runtime frame (status notes skipped
+runtime frames). Step Over stays at the current call depth and absorbs
+same-line PC moves. Pure C sessions keep every stop.
 
 Use freshly compiled `-g` targets: the compiler avoids no-op dispatch thunks
 and emits complete class member DWARF for user types. Restart of a `.cw`

@@ -113,6 +113,10 @@ class Cdbg {
     int64 skipRuntimeLeft
     int64 skippedRuntimeFrames
     String skipOrigin
+    // After Step Over, GDB can stop again on the same source line at a later
+    // PC (mid-line after a call return). Keep nexting until the line changes.
+    int64 skipSameLineLeft
+    int64 skippedSameLineStops
     bool rebuildPendingRun
     bool rebuildBreakAtStart
     bool preferCwhipStops
@@ -201,6 +205,8 @@ class Cdbg {
         skipRuntimeLeft = 0
         skippedRuntimeFrames = 0
         skipOrigin = ""
+        skipSameLineLeft = 0
+        skippedSameLineStops = 0
         rebuildPendingRun = false
         rebuildBreakAtStart = true
         preferCwhipStops = false
@@ -990,6 +996,8 @@ class Cdbg {
         skipRuntimeLeft = 0
         skippedRuntimeFrames = 0
         skipOrigin = ""
+        skipSameLineLeft = 0
+        skippedSameLineStops = 0
         preferCwhipStops = false
         valueInspector = false
         selectedFrame = 0
@@ -1163,6 +1171,8 @@ class Cdbg {
         if (executing) { ignored("Run ignored: the previous execution command is still pending")
             return }
         skipRuntimeLeft = 0
+        skipSameLineLeft = 0
+        skippedSameLineStops = 0
         if (hasRun) { execute("-exec-continue", "Continue") }
         else {
             executing = true
@@ -1269,6 +1279,8 @@ class Cdbg {
     }
     void stepInto() {
         if (stopped()) {
+            skipSameLineLeft = 0
+            skippedSameLineStops = 0
             skipRuntimeLeft = 32
             skippedRuntimeFrames = 0
             skipOrigin = stopPosition
@@ -1278,20 +1290,43 @@ class Cdbg {
     void stepOver() {
         skipRuntimeLeft = 0
         skipOrigin = ""
+        skippedRuntimeFrames = 0
+        skipSameLineLeft = 16
+        skippedSameLineStops = 0
         if (stopped()) { execute("-exec-next", "Step Over") }
     }
     void stepOut() {
         skipRuntimeLeft = 0
         skipOrigin = ""
+        skipSameLineLeft = 0
+        skippedSameLineStops = 0
         if (stopped()) { execute("-exec-finish", "Step Out") }
     }
     bool cwhipFrame(String path) {
         return(path.endsWith(".cw"))
     }
-    // After Step Into on a Cwhip app, finish out of runtime frames and step
-    // again when finish returns to the original call site, until a different
-    // .cw stop (typically the callee). Pure C sessions keep every stop.
-    bool skipRuntimeStop(String path, String position, String reason) {
+    bool openableSource(String path) {
+        if (path.equals("") || path.equals("??")) { return(false) }
+        String absolute = System.FileSystem().absolutePath(path)
+        if (absolute.equals("")) { absolute = path }
+        return(System.FileSystem().isFile(absolute))
+    }
+    // Thin runtime guards injected around calls; keep finishing through these so
+    // Step Into on a Cwhip method still reaches the method body. Real runtime
+    // work such as cwhip_string_format_new is not a prologue and is presented.
+    bool runtimePrologue(String func) {
+        if (func.startsWith("cwhip_gc_") || func.startsWith("cwhip_trace_") ||
+            func.startsWith("cwhip_runtime_")) { return(true) }
+        if (func.equals("cwhip.require_nonnull") || func.equals("find_containing_object") ||
+            func.equals("find_object")) { return(true) }
+        return(false)
+    }
+    // After Step Into on a Cwhip app, finish out of frames with no source and
+    // out of thin GC/trace prologues, then step again when finish returns to
+    // the call site, until a different .cw stop or a runtime frame that has
+    // debug info and is real work (so Step Into on print opens RuntimeGc.c).
+    // Pure C sessions keep every stop.
+    bool skipRuntimeStop(String path, String func, String position, String reason) {
         if (skipRuntimeLeft <= 0 || !preferCwhipStops) { return(false) }
         if (reason.startsWith("exited") || reason.equals("breakpoint-hit") ||
             reason.equals("watchpoint-trigger") || reason.equals("read-watchpoint-trigger") ||
@@ -1315,10 +1350,36 @@ class Cdbg {
             controls()
             return(true)
         }
+        // Non-.cw frame with openable source that is not a thin prologue: show it.
+        if (openableSource(path) && !runtimePrologue(func)) {
+            skipRuntimeLeft = 0
+            skipOrigin = ""
+            return(false)
+        }
         skipRuntimeLeft = skipRuntimeLeft - 1
         skippedRuntimeFrames = skippedRuntimeFrames + 1
         executing = true
         enqueue("-exec-finish", "execute", "")
+        controls()
+        return(true)
+    }
+    // Step Over can stop again on the same file:line at a later PC (for example
+    // after returning to a call site mid-line). Continue nexting until the
+    // source line changes so one toolbar press matches one statement.
+    bool skipSameLineStop(String position, String reason) {
+        if (skipSameLineLeft <= 0) { return(false) }
+        if (!reason.equals("end-stepping-range")) {
+            skipSameLineLeft = 0
+            return(false)
+        }
+        if (stopPosition.equals("") || !position.equals(stopPosition)) {
+            skipSameLineLeft = 0
+            return(false)
+        }
+        skipSameLineLeft = skipSameLineLeft - 1
+        skippedSameLineStops = skippedSameLineStops + 1
+        executing = true
+        enqueue("-exec-next", "execute", "")
         controls()
         return(true)
     }
@@ -2110,9 +2171,11 @@ class Cdbg {
                 MiValue frame = parsed.data.field("frame")
                 String stopPath = frame.field("fullname").text
                 if (stopPath.equals("")) { stopPath = frame.field("file").text }
+                String stopFunc = frame.field("func").text
                 String position = format("{}:{} ({})", stopPath,
-                    frame.field("line").text, frame.field("func").text)
-                if (skipRuntimeStop(stopPath, position, reason)) { return }
+                    frame.field("line").text, stopFunc)
+                if (skipRuntimeStop(stopPath, stopFunc, position, reason)) { return }
+                if (skipSameLineStop(position, reason)) { return }
                 hasRun = true
                 selectedFrame = 0
                 stopCount = stopCount + 1
@@ -2125,6 +2188,11 @@ class Cdbg {
                     stopDetail.append(format("; skipped {} runtime frame(s)", skippedRuntimeFrames))
                     skippedRuntimeFrames = 0
                 }
+                if (skippedSameLineStops > 0) {
+                    stopDetail.append(format("; advanced over {} same-line stop(s)", skippedSameLineStops))
+                    skippedSameLineStops = 0
+                }
+                skipSameLineLeft = 0
                 stopPosition = position
                 stopAddress = address
                 String hit = parsed.data.field("bkptno").text
