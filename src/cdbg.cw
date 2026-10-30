@@ -410,6 +410,22 @@ class Cdbg {
 
     bool watchCloseRequested()
 
+    void localsClicked(int64 line)
+
+    String rowExpression(GtkSource.View view, int64 line)
+
+    String rowFriendly(GtkSource.View view, int64 line)
+
+    void watchSymbolFromLocals()
+
+    void watchSymbolFromWatches()
+
+    void copyLocalsFriendly()
+
+    void copyWatchFriendly()
+
+    void copyFriendlyFrom(GtkSource.View view)
+
     void showBreakpointCondition()
 
     void showBreakpointHitCount()

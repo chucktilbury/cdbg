@@ -67,6 +67,87 @@ void Cdbg.breakpointClicked(int64 line) {
 void Cdbg.watchClicked(int64 line) {
         selectedWatch = line - 1
         controls()
+        String expression = rowExpression(watches, line)
+        if (!expression.equals("")) { addWatch(expression) }
+    }
+
+void Cdbg.localsClicked(int64 line) {
+        String expression = rowExpression(locals, line)
+        if (!expression.equals("")) { addWatch(expression) }
+    }
+
+String Cdbg.rowExpression(GtkSource.View view, int64 line) {
+        if (view == null || line < 1) { return("") }
+        list rows = view.text().split("\n")
+        if (line > rows.length) { return("") }
+        String row = (rows[line - 1] as String).trim()
+        if (row.equals("") || row.startsWith("Locals") || row.startsWith("Watches") ||
+            row.startsWith("(") || row.startsWith("<")) { return("") }
+        int64 i = 0
+        int64 eq = -1
+        while (i + 2 < row.length) {
+            if (row[i] == 32u && row[i + 1] == 61u && row[i + 2] == 32u) {
+                eq = i
+                i = row.length
+            } else { i = i + 1 }
+        }
+        if (eq < 1) { return("") }
+        return(row[0..(eq - 1)].trim())
+    }
+
+String Cdbg.rowFriendly(GtkSource.View view, int64 line) {
+        if (view == null || line < 1) { return("") }
+        list rows = view.text().split("\n")
+        if (line > rows.length) { return("") }
+        String row = (rows[line - 1] as String).trim()
+        int64 i = 0
+        int64 eq = -1
+        while (i + 2 < row.length) {
+            if (row[i] == 32u && row[i + 1] == 61u && row[i + 2] == 32u) {
+                eq = i
+                i = row.length
+            } else { i = i + 1 }
+        }
+        if (eq < 0 || eq + 3 >= row.length) { return(row) }
+        return(row[(eq + 3)..(row.length - 1)].trim())
+    }
+
+void Cdbg.watchSymbolFromLocals() {
+        String expression = rowExpression(locals, locals.line())
+        if (expression.equals("")) {
+            status.setText("Select a local row with a name = value")
+            return
+        }
+        addWatch(expression)
+    }
+
+void Cdbg.watchSymbolFromWatches() {
+        String expression = rowExpression(watches, watches.line())
+        if (expression.equals("")) {
+            status.setText("Select a watch row with a name = value")
+            return
+        }
+        addWatch(expression)
+    }
+
+void Cdbg.copyLocalsFriendly() { copyFriendlyFrom(locals) }
+void Cdbg.copyWatchFriendly() { copyFriendlyFrom(watches) }
+
+void Cdbg.copyFriendlyFrom(GtkSource.View view) {
+        if (view == null) { return }
+        int64 line = view.line()
+        String text = rowFriendly(view, line)
+        if (text.equals("")) {
+            status.setText("Select a value row to copy")
+            return
+        }
+        String previous = view.text()
+        view.setText(text)
+        view.selectAll()
+        view.copy()
+        view.setText(previous)
+        if (line > 0) { view.centerCursor(line, 1) }
+        status.setText("Copied friendly value")
     }
 
 void Cdbg.deleteSelectedWatch() {

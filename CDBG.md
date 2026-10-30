@@ -220,7 +220,9 @@ launched in cdbg's current working directory.
    Right-click the **Watches (Cwhip / Native)** tab and choose **Add Watch…**.
    The parented dialog has an expression entry and **Add** / **Cancel**
    buttons. Out-of-scope/evaluation errors are displayed alongside the
-   expression.
+   expression. Activating a Locals or Watches row (or **Add Watch for Symbol**)
+   adds a watch for the left-hand name; **Copy Friendly Value** copies the
+   right-hand summary.
 5. Single-click a **Stack** entry to inspect that frame's source, locals and
    watches. This browses the stack without executing. Step/continue operations
    restore the actual execution frame (frame zero) first, and the next stop
