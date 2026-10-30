@@ -219,6 +219,10 @@ class Cdbg {
     }
     Gtk.Button button(Gtk.Box row, String title, void<> action) {
         Gtk.Button item = Gtk.Button(title)
+        // Keep focus in the source pane; a focusable toolbar button makes the
+        // first mouse press only focus the control instead of stepping.
+        item.setCanFocus(false)
+        item.setFocusOnClick(false)
         item.onClicked(action)
         row.append(item)
         return(item)
@@ -1805,7 +1809,10 @@ class Cdbg {
             status.setText(format("{}; {}", status.text(), stopDetail))
         }
         if (path.equals("")) { sourceMessage("Source unavailable: stopped frame has no source path") }
-        else { showSource(path, line) }
+        else {
+            showSource(path, line)
+            if (source != null) { source.focus() }
+        }
     }
     // Reads a source file for display; on failure shows the parented error
     // dialog and returns false without touching any tab.
