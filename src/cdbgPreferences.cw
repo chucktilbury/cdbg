@@ -27,6 +27,22 @@ void Cdbg.createPreferences() {
         setupArguments = Gtk.Entry("")
         setupArguments.setHExpand(true)
         sessionPreferences.append(setupArguments)
+        sessionPreferences.append(Gtk.Label("Working directory (empty = cdbg's current directory)"))
+        setupCwd = Gtk.Entry("")
+        setupCwd.setHExpand(true)
+        sessionPreferences.append(setupCwd)
+        sessionPreferences.append(Gtk.Label("Environment (KEY=VALUE lines; # comments; unset not supported)"))
+        setupEnv = GtkSource.View()
+        setupEnv.configure(settings.fontFamily, settings.fontSize, settings.tabWidth, true, false, false, true)
+        setupEnv.setEmojiMenu(false)
+        setupEnv.setEditable(true)
+        setupEnv.widget().setHExpand(true)
+        setupEnv.widget().setVExpand(true)
+        Gtk.ScrolledWindow envScroll = Gtk.ScrolledWindow()
+        envScroll.setChild(setupEnv.widget())
+        envScroll.setHExpand(true)
+        envScroll.setVExpand(true)
+        sessionPreferences.append(envScroll)
         setupStatus = Gtk.Label("")
         sessionPreferences.append(setupStatus)
         Gtk.Box sessionButtons = Gtk.Box(Gtk.Box.HORIZONTAL, 6)
@@ -113,6 +129,8 @@ void Cdbg.showSetup() {
         showPreferences()
         setupStart.setActive(breakAtStart)
         setupArguments.setText(ArgumentList().display(arguments))
+        setupCwd.setText(sessionCwd)
+        setupEnv.setText(environmentText)
         if (stateTarget.equals("")) {
             setupStatus.setText("No target loaded: Break at start becomes this directory's default")
         } else { setupStatus.setText(format("Settings for {}", stateTarget)) }
@@ -145,6 +163,8 @@ void Cdbg.showSessionPreferences() {
         resetChoices.setVisible(false)
         setupStart.setActive(breakAtStart)
         setupArguments.setText(ArgumentList().display(arguments))
+        setupCwd.setText(sessionCwd)
+        setupEnv.setText(environmentText)
         if (stateTarget.equals("")) {
             setupStatus.setText("No target loaded: Break at start becomes this directory's default")
         } else { setupStatus.setText(format("Settings for {}", stateTarget)) }
@@ -317,6 +337,7 @@ void Cdbg.saveSettings() {
 
 void Cdbg.applyAppearance() {
         list views = [source, locals, stack, watches, breaks, console, programOutput, runtimeValues]
+        if (setupEnv != null) { views.append(setupEnv) }
         int64 i = 0
         while (i < sourceFiles.length) {
             views.append((sourceFiles[i] as DebugSource).view)
@@ -328,7 +349,8 @@ void Cdbg.applyAppearance() {
             if (view != null) {
                 bool numbers = settings.lineNumbers
                 if (view == locals || view == stack || view == watches || view == breaks ||
-                    view == console || view == programOutput || view == runtimeValues) {
+                    view == console || view == programOutput || view == runtimeValues ||
+                    view == setupEnv) {
                     numbers = false
                 }
                 view.configure(settings.fontFamily, settings.fontSize, settings.tabWidth, true,

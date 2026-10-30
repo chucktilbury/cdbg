@@ -182,16 +182,20 @@ launched in cdbg's current working directory.
 3. **Edit > Preferences…** (Ctrl+comma) opens a cedit-style preferences window
    with **Session**, **Appearance** and **Keyboard** categories.
    **Session** keeps **Break at start** (on by default for a new configuration),
-   a program **Arguments** field, and **Apply** / **Cancel**. Arguments use
-   shell-like quoting without running a shell: whitespace separates words,
-   `'…'` is literal, `"…"` allows `\"`, `\\`, `\$` and `` \` `` escapes, an
-   unquoted backslash escapes the next character, and `''` or `""` is an empty
-   argument. Each argument is MI-quoted separately for `-exec-arguments`.
-   Malformed input (unterminated quote, trailing backslash) is reported in the
-   dialog and leaves the previous arguments and session unchanged. Apply never
-   restarts a running program; the settings take effect at the next Run from a
-   not-started target, Restart or Load. Cancel changes nothing. With no target
-   loaded, Apply sets this directory's default Break at start.
+   a program **Arguments** field, optional **Working directory** and
+   **Environment** (`KEY=VALUE` lines; `#` comments; blank lines ignored), and
+   **Apply** / **Cancel**. Arguments use shell-like quoting without running a
+   shell: whitespace separates words, `'…'` is literal, `"…"` allows `\"`,
+   `\\`, `\$` and `` \` `` escapes, an unquoted backslash escapes the next
+   character, and `''` or `""` is an empty argument. Each argument is MI-quoted
+   separately for `-exec-arguments`. Empty cwd uses cdbg's current directory;
+   a non-empty cwd must exist and is sent with `-environment-cd` before
+   `-exec-run`. Environment pairs use `-environment-set-variable` (no unset in
+   v1). Malformed input is reported in the dialog and leaves previous Session
+   values unchanged. Apply never restarts a running program; the settings take
+   effect at the next Run from a not-started target, Restart or Load. Cancel
+   changes nothing. With no target loaded, Apply sets this directory's default
+   Break at start (arguments/cwd/env require a target).
    **Appearance** (font, size, tab width, source line numbers) and **Keyboard**
    (searchable Record/Reset/Disable bindings) auto-save to
    `$XDG_CONFIG_HOME/cwhip/cdbg.toml`. Keyboard lists View panel commands with
@@ -355,6 +359,8 @@ show_runtime = false
 ["/abs/path/program.cw"]       # canonical executable, or .cw for cdbg file.cw
 break_at_start = false
 arguments = "one 'two words' ''"
+cwd = "/abs/path/project"
+env = "FOO=bar\nBAZ=1"
 points = [
 { file = "/abs/path/program.cw", line = 4, enabled = true },
 ]
@@ -370,9 +376,9 @@ Target tables are keyed by canonical executable path; for `cdbg file.cw` the
 key is the canonical source path, never the temporary compiled executable.
 Symlink aliases share a key. Resolved locations are saved as file:line entries;
 multi-location groups are restored as individual file:line breakpoints rather
-than recreating a function breakpoint. A target's `break_at_start` and
-`arguments` are written only after Session Apply for it. Watch expressions
-are saved with the target whenever they change.
+than recreating a function breakpoint. A target's `break_at_start`, `arguments`, `cwd` and `env` are written only after
+Session Apply for it. Watch expressions are saved with the target whenever they
+change.
 
 Earlier versions used a global `$XDG_CONFIG_HOME/cdbg/state.toml` (or
 `~/.config/cdbg/state.toml`). That file is now neither read nor modified, so
@@ -405,12 +411,14 @@ clamped; invalid saved arguments are ignored with a diagnostic.
 ## Boundaries
 
 Only local launch is supported: no remote debugging, attach, DAP, LLDB,
-multitarget sessions, thread-selection UI, disassembly, register view, or
-environment/working-directory settings yet. Inferior interactive stdin/terminal emulation is not
-provided: the output PTY supplies no user input, so programs waiting on stdin
-must be paused/ended. The stack view is capped at 31 frames. Watches use the
-read-only subset of GDB expressions described above; calls and mutations are
-rejected and inferior function calls are disabled in the session.
+multitarget sessions, thread-selection UI, disassembly or register view yet.
+Session Preferences can set inferior working directory and environment
+variables for the next run; unsetting variables is not supported. Inferior
+interactive stdin/terminal emulation is not provided: the output PTY supplies
+no user input, so programs waiting on stdin must be paused/ended. The stack
+view is capped at 31 frames. Watches use the read-only subset of GDB
+expressions described above; calls and mutations are rejected and inferior
+function calls are disabled in the session.
 
 cdbg provides bounded String/container/class field summaries, not an expandable
 object tree. Watch expressions and breakpoints for the current target are

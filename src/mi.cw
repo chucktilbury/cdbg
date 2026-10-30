@@ -267,3 +267,96 @@ class ArgumentList {
         return(text)
     }
 }
+
+// Session environment: one KEY=VALUE per line; blank lines and # comments ignored.
+class EnvironmentPair {
+    String name
+    String value
+    EnvironmentPair(String key, String text) {
+        name = key
+        value = text
+    }
+}
+
+class EnvironmentList {
+    list pairs
+    String error
+
+    EnvironmentList() {
+        pairs = []
+        error = ""
+    }
+
+    bool nameOk(String name) {
+        if (name.equals("") || name.length > 256) { return(false) }
+        int64 i = 0
+        while (i < name.length) {
+            int64 c = int64(name[i])
+            bool letter = (c >= 65 && c <= 90) || (c >= 97 && c <= 122) || c == 95
+            bool digit = c >= 48 && c <= 57
+            if (i == 0) {
+                if (!letter) { return(false) }
+            } else {
+                if (!letter && !digit) { return(false) }
+            }
+            i = i + 1
+        }
+        return(true)
+    }
+
+    bool parse(String text) {
+        pairs = []
+        error = ""
+        if (text.length > 16384) {
+            error = "environment text exceeds 16 KiB"
+            return(false)
+        }
+        list lines = text.split("\n")
+        int64 i = 0
+        while (i < lines.length) {
+            String line = (lines[i] as String).trim()
+            i = i + 1
+            if (line.equals("") || line.startsWith("#")) { continue }
+            int64 eq = line.find("=")
+            if (eq < 1) {
+                error = format("expected KEY=VALUE on line {}", i)
+                pairs = []
+                return(false)
+            }
+            String name = ""
+            String value = ""
+            if (eq > 0) { name = line[0..(eq - 1)] }
+            if (eq + 1 <= line.length - 1) { value = line[(eq + 1)..(line.length - 1)] }
+            else { if (eq + 1 == line.length) { value = "" } }
+            if (!nameOk(name)) {
+                error = format("invalid environment name '{}'", name)
+                pairs = []
+                return(false)
+            }
+            if (value.length > 4096) {
+                error = format("value for {} exceeds 4096 bytes", name)
+                pairs = []
+                return(false)
+            }
+            pairs.append(EnvironmentPair(name, value))
+            if (pairs.length > 64) {
+                error = "at most 64 environment variables"
+                pairs = []
+                return(false)
+            }
+        }
+        return(true)
+    }
+
+    String display(list items) {
+        String text = ""
+        int64 i = 0
+        while (i < items.length) {
+            EnvironmentPair item = items[i] as EnvironmentPair
+            if (i > 0) { text.append("\n") }
+            text.append(format("{}={}", item.name, item.value))
+            i = i + 1
+        }
+        return(text)
+    }
+}
