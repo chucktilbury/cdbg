@@ -220,7 +220,14 @@ void Cdbg.saveState(bool layout) {
             }
             updates.append("]\n")
         }
-        String text = Gtk.Config().merge(stateText, updates)
+        String problem = Gtk.Config().validate(updates)
+        if (!problem.equals("")) {
+            saveError(format("invalid settings snapshot ({})", problem))
+            return
+        }
+        String base = stateText
+        if (base.equals("")) { base = "version = 1\n" }
+        String text = Gtk.Config().merge(base, updates)
         if (text.equals("") || text.length > 262144) {
             saveError("snapshot exceeds its limit or cannot be serialized")
             return

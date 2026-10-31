@@ -34,8 +34,9 @@ void Cdbg.startRun() {
         i = 0
         while (i < environmentPairs.length) {
             EnvironmentPair item = environmentPairs[i] as EnvironmentPair
-            enqueue(format("-environment-set-variable {} {}", MiParser().quote(item.name),
-                MiParser().quote(item.value)), "environment", "")
+            // GDB 16+ dropped -environment-set-variable; -gdb-set environment remains.
+            enqueue(format("-gdb-set environment {} {}", item.name, MiParser().quote(item.value)),
+                "environment", "")
             i = i + 1
         }
         runHits = []

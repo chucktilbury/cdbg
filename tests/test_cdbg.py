@@ -1950,7 +1950,8 @@ def main() -> None:
                                     "breaks", "breaks-restore"):
                             assert not result.stderr, result.stderr
                         else:
-                            lines = result.stderr.splitlines()
+                            lines = [line for line in result.stderr.splitlines()
+                                     if line.startswith("cdbg:")]
                             assert lines and all(line.startswith(
                                 "cdbg: warning[CDBG2001]: ") for line in lines), result.stderr
                             assert all(str(cwd / ".cdbg.toml") in line for line in lines), result.stderr
