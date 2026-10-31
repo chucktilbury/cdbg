@@ -647,11 +647,14 @@ include "cdbgPreferences.cw"
 Cdbg Cdbg._self() from "cwhip_gtk_self"
 
 start {
-    Cli.CommandLine commandLine = Cli.CommandLine("cdbg", "local GDB/MI GTK debugger", "0.1.0")
+    Cli.CommandLine commandLine = Cli.CommandLine("cdbg",
+        "Local GDB/MI GTK debugger. Sources compile with -g. No LLDB, remote, or attach.",
+        "0.1.0")
     commandLine.setCaptureRemainder(true)
     Cli.Option help = Cli.Option()
     help.longName = "help"
     help.name = "help"
+    help.description = "show this help"
     help.action = Cli.Action().HELP
     commandLine.addOption(help)
     Cli.Positional targetPos = Cli.Positional()
@@ -661,38 +664,15 @@ start {
     try {
         commandLine.parseArgv()
     } except() as error {
-        String detail = format("{}", error)
-        if (detail.startsWith("unknown option: ")) {
-            detail = detail[16..detail.length - 1]
-        }
-        DebugDiagnostic().emit("error", "CDBG0001",
-            format("Unexpected option {}; use cdbg --help for usage (prefix a target beginning with '-' with ./)", detail))
-        System.Process().exit(2)
-    }
-    list positionals = commandLine.allPositionalValues()
-    list remainder = commandLine.allRemainderValues()
-    // Match the pre-stdlib CLI contract: lone "--", "--help" with extras, and
-    // other dash tokens that are not a real target are usage errors before GTK.
-    list rawArgv = System.Process().argv()
-    if (rawArgv.length == 2 && (rawArgv[1] as String).equals("--")) {
-        DebugDiagnostic().emit("error", "CDBG0001",
-            "Unexpected option --; use cdbg --help for usage (prefix a target beginning with '-' with ./)")
+        // Keep the stdlib wording so apps share one CLI look.
+        DebugDiagnostic().emit("error", "CDBG0001", format("{}", error))
         System.Process().exit(2)
     }
     if (commandLine.currentAction() == Cli.Action().HELP) {
-        if (positionals.length > 0 || remainder.length > 0 || rawArgv.length != 2) {
-            DebugDiagnostic().emit("error", "CDBG0001",
-                "Unexpected option --help; use cdbg --help for usage (prefix a target beginning with '-' with ./)")
-            System.Process().exit(2)
-        }
-        print("Usage: cdbg [SOURCE.cw|EXECUTABLE [-- ARGS...]]\nLocal GDB/MI GTK prototype. Sources compile with -g. No LLDB, remote, or attach.\n")
+        print(commandLine.helpText())
         System.Process().exit(0)
     }
-    if (positionals.length > 1) {
-        DebugDiagnostic().emit("error", "CDBG0001",
-            "Unexpected option; use cdbg --help for usage (prefix a target beginning with '-' with ./)")
-        System.Process().exit(2)
-    }
+    list positionals = commandLine.allPositionalValues()
     String target = ""
     if (positionals.length == 1) {
         target = positionals[0] as String

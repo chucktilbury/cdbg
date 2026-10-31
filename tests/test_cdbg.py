@@ -1595,13 +1595,16 @@ def cli_checks(executable: Path, work: Path) -> None:
     env.pop("WAYLAND_DISPLAY", None)
     env["NO_COLOR"] = "1"
     missing = work / "missing target.cw"
+    # Follow stdlib cli semantics (shared look across apps): --help ignores
+    # trailing argv, unknown options keep the stdlib message, and bare "--"
+    # is a valid remainder terminator (not a usage error).
     for arguments, exit_code, diagnostic in (
         (["--help"], 0, None),
+        (["--help", "extra"], 0, None),
         (["--unknown"], 2, "CDBG0001"),
-        (["--"], 2, "CDBG0001"),
-        (["--help", "extra"], 2, "CDBG0001"),
         ([str(missing)], 1, "CDBG1001"),
         ([str(work)], 1, "CDBG1001"),
+        (["a", "b"], 2, "CDBG0001"),
     ):
         result = invoke([str(executable), *arguments], work, env)
         assert result.returncode == exit_code, result
@@ -1609,9 +1612,15 @@ def cli_checks(executable: Path, work: Path) -> None:
             assert result.stdout == "", result
             assert result.stderr.startswith(f"cdbg: error[{diagnostic}]: "), result
             assert len(result.stderr.splitlines()) == 1 and "\x1b" not in result.stderr, result
-            assert arguments[0] in result.stderr, result
+            if arguments == ["--unknown"]:
+                assert "unknown option: --unknown" in result.stderr, result
+            elif arguments == ["a", "b"]:
+                assert "unexpected positional argument: b" in result.stderr, result
+            else:
+                assert arguments[0] in result.stderr, result
         else:
-            assert result.stdout.startswith("Usage: cdbg ") and not result.stderr, result
+            assert result.stdout.startswith("Usage: cdbg ") and "[-- <args>...]" in result.stdout, result
+            assert not result.stderr, result
     assert not (work / ".cdbg.toml").exists(), "Headless CLI checks must not create GUI state"
 
 

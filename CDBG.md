@@ -53,12 +53,14 @@ session ends or the window closes.
 `cdbg` incrementally follows the shared
 [Cwhip diagnostics contract](https://github.com/chucktilbury/cwhip/blob/master/doc/DIAGNOSTICS.md):
 `cdbg: severity[CODE]: explanation`. Diagnostics go to stderr, and `--help`
-goes to stdout. Output is plain text, including when redirected or `NO_COLOR`
-is set. Unknown leading options (including a bare `--`) or extra arguments to
-`--help` exit with status 2. A missing/non-file command-line target exits with
-status 1 before GTK starts, so both errors work without a display. Prefix a
-target beginning with `-` with `./`; after a target, options/arguments still
-belong to the inferior and the optional `--` separator is unchanged.
+goes to stdout via the shared stdlib `cli` `helpText()`. Output is plain text,
+including when redirected or `NO_COLOR` is set. Unknown options and unexpected
+positionals exit with status 2 using stdlib wording (`unknown option: …`,
+`unexpected positional argument: …`). `--help` ignores trailing argv; a bare
+`--` is the remainder terminator, not a usage error. A missing/non-file
+command-line target exits with status 1 before GTK starts, so those errors
+work without a display. Prefix a target beginning with `-` with `./`; after
+`--`, options/arguments belong to the inferior.
 
 No arguments opens the GUI. Once the GUI is running, errors remain interactive:
 failed compile/load/debug operations are **not** reported as loaded/running,
