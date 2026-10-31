@@ -1,6 +1,7 @@
 import gtk
 import sourceview
 import system
+import cli as Cli
 include "mi.cw"
 include "terminal.cw"
 include "debugTypes.cw"
@@ -51,6 +52,7 @@ class Cdbg {
     list environmentPairs
     list cliArguments
     bool cliPending
+    String cliTarget
     String startBreakpoint
     bool startMissing
     list runHits
@@ -230,6 +232,8 @@ class Cdbg {
         environmentText = ""
         environmentPairs = []
         cliArguments = []
+        cliPending = false
+        cliTarget = ""
         startBreakpoint = ""
         startNumber = ""
         runHits = []
@@ -643,25 +647,53 @@ include "cdbgPreferences.cw"
 Cdbg Cdbg._self() from "cwhip_gtk_self"
 
 start {
-    String target = System.Process().arg(1)
-    if ((target.equals("--help") && System.Process().argc() != 2) ||
-        (target.startsWith("-") && !target.equals("--help"))) {
+    Cli.CommandLine commandLine = Cli.CommandLine("cdbg", "local GDB/MI GTK debugger", "0.1.0")
+    commandLine.setCaptureRemainder(true)
+    Cli.Option help = Cli.Option()
+    help.longName = "help"
+    help.name = "help"
+    help.action = Cli.Action().HELP
+    commandLine.addOption(help)
+    Cli.Positional targetPos = Cli.Positional()
+    targetPos.name = "target"
+    targetPos.description = "source or executable"
+    commandLine.addPositional(targetPos)
+    try {
+        commandLine.parseArgv()
+    } except() as error {
+        String detail = format("{}", error)
+        if (detail.startsWith("unknown option: ")) {
+            detail = detail[16..detail.length - 1]
+        }
         DebugDiagnostic().emit("error", "CDBG0001",
-            format("Unexpected option {}; use cdbg --help for usage (prefix a target beginning with '-' with ./)", target))
+            format("Unexpected option {}; use cdbg --help for usage (prefix a target beginning with '-' with ./)", detail))
         System.Process().exit(2)
     }
-    if (target.equals("--help")) {
+    if (commandLine.currentAction() == Cli.Action().HELP) {
         print("Usage: cdbg [SOURCE.cw|EXECUTABLE [-- ARGS...]]\nLocal GDB/MI GTK prototype. Sources compile with -g. No LLDB, remote, or attach.\n")
-    } else {
-        if (System.Process().argc() > 1 && !System.FileSystem().isFile(target)) {
+        System.Process().exit(0)
+    }
+    list positionals = commandLine.allPositionalValues()
+    if (positionals.length > 1) {
+        DebugDiagnostic().emit("error", "CDBG0001",
+            "Unexpected option; use cdbg --help for usage (prefix a target beginning with '-' with ./)")
+        System.Process().exit(2)
+    }
+    String target = ""
+    if (positionals.length == 1) {
+        target = positionals[0] as String
+        if (!System.FileSystem().isFile(target)) {
             DebugDiagnostic().emit("error", "CDBG1001",
                 format("Target is not a local file: {}; choose an existing source or executable file", target))
             System.Process().exit(1)
         }
-        Gtk.Application app = Gtk.Application("org.cwhip.Cdbg")
-        Cdbg debugger = Cdbg()
-        app.onActivate(debugger.activate)
-        app.run()
-        debugger.endSession()
     }
+    Gtk.Application app = Gtk.Application("org.cwhip.Cdbg")
+    Cdbg debugger = Cdbg()
+    debugger.cliTarget = target
+    debugger.cliArguments = commandLine.allRemainderValues()
+    debugger.cliPending = debugger.cliArguments.length > 0
+    app.onActivate(debugger.activate)
+    app.run()
+    debugger.endSession()
 }
