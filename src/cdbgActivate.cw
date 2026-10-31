@@ -159,15 +159,8 @@ void Cdbg.activate() {
         applyAppearance()
         controls()
         window.present()
-        if (System.Process().argc() > 1) {
-            int64 i = 2
-            if (System.Process().arg(i).equals("--")) { i = i + 1 }
-            while (i < System.Process().argc()) {
-                cliArguments.append(System.Process().arg(i))
-                i = i + 1
-            }
-            cliPending = cliArguments.length > 0
-            loadTarget(System.Process().arg(1))
+        if (!cliTarget.equals("")) {
+            loadTarget(cliTarget)
         }
     }
 
