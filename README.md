@@ -1,90 +1,30 @@
 # cdbg
 
 `cdbg` is a Cwhip source debugger proof of concept built with GTK 4,
-GtkSourceView and GDB/MI. It can compile Cwhip source with debug information,
-launch local executables, set and manage breakpoints, inspect frames, locals
-and watches, and show both Cwhip-friendly values and their GDB runtime
-representations.
+GtkSourceView, and GDB/MI. It compiles Cwhip sources with debug information,
+launches local executables, and inspects breakpoints, frames, locals, and
+watches. Source: [github.com/chucktilbury/cdbg](https://github.com/chucktilbury/cdbg).
 
-This repository is independently buildable against an installed Cwhip SDK; it
-does not require a Cwhip compiler checkout. See [BUILD.md](doc/BUILD.md) for
-setup, build, test, clean and install instructions, and read the
-[cdbg guide](CDBG.md) for controls and behavior.
+This directory contains the debugger in `src/`, examples in `examples/`, tests
+in `tests/`, and build helpers in `scripts/`. It is independently buildable
+against an installed Cwhip SDK; no compiler checkout is required.
 
-## Project environment
-
-This project owns its setup files following the
-[Cwhip template](https://github.com/chucktilbury/cwhip-template) conventions;
-it does not depend on or embed a template checkout.
+With a current Cwhip SDK installed, run `scripts/setup [--clean] [debug|release|profile]`
+from the checkout, then `build` in the project shell. Use `rebuild` for a
+clean-first build, or `clean` to remove generated outputs; exit the shell before
+running setup again. See the build guide for SDK selection.
 
 ```sh
 export CWHIP_SDK=/path/to/installed/cwhip-sdk
-./scripts/setup --clean         # optionally add debug, release or profile
-build cdbg                      # the new shell starts in build/
+./scripts/setup --clean
+build cdbg
 cdbg ../examples/debugger.cw
-exit                           # return to the original shell
+exit
 ```
 
-The SDK must include application output-directory and application-defaults
-support. Older SDK installations must be rebuilt and reinstalled from updated
-Cwhip sources; updating the compiler checkout alone is not enough. Setup configures
-before opening a fresh Bash shell, sources your existing `~/.bashrc`, and adds
-the project's `bin/` and `scripts/` to PATH,
-and prefixes your existing prompt with a colored `project(build-type):` label.
-It never downloads dependencies,
-changes Git state or writes your shell configuration. Both setup and direct
-configuration select a non-empty `CWHIP_SDK` first, then the top-level
-TOML `sdk_prefix` in `$XDG_CONFIG_HOME/cwhip/sdk.toml` (or
-`$HOME/.config/cwhip/sdk.toml` when XDG_CONFIG_HOME is unset/empty), then
-ordinary CMake discovery. The legacy `settings.toml` is consulted only if
-`sdk.toml` is absent; a present `sdk.toml` is authoritative, including when its
-key is missing. Reading SDK configuration requires Python 3.11+.
-Setup exports a selected prefix as `CWHIP_SDK`; its `bin/` joins PATH so the
-debugger can compile `.cw` targets with that SDK.
-
-The installed SDK also supplies common CMake application defaults from
-`[applications].install_prefix` and `[applications].build_type` in `sdk.toml`.
-Setup inherits the SDK/cache build type when no mode is specified; `debug`,
-`release` and `profile` explicitly select CMake `Debug`, `Release` and
-`RelWithDebInfo`. Explicit CMake settings and existing cache values win over
-SDK defaults. These defaults do not include a shared build directory or
-arbitrary CMake flags, and cdbg does not write the SDK settings file.
-
-Executables default to root `bin/`, native libraries to root `lib/`, and
-intermediate files to `build/`; output directories are created during the build,
-not configuration. All are ignored. See [BUILD.md](doc/BUILD.md) for output
-overrides, the `build`, `rebuild` and `clean` commands, and the few cases that
-need direct CMake commands.
-
-## Source
-
-- `src/cdbg.cw` — GTK application class, startup, and includes for method modules
-- `src/cdbg*.cw`, `src/debugTypes.cw`, `src/commandBinding.cw`, `src/cdbgSettings.cw`,
-  `src/keyboardPreference.cw` — multi-pane layout, preferences, session, execution,
-  breakpoints, and helpers
-- `src/mi.cw` — GDB/MI client/parser
-- Global prefs: `~/.config/cwhip/cdbg.toml`; per-cwd session/layout: `.cdbg.toml`
-- `src/terminal.c` and `src/terminal.cw` — local inferior output PTY
-- `src/values.py` and `src/embed_values.py` — bounded Python-enabled GDB
-  value inspector
-- `examples/debugger.cw` — example program
-- `CDBG.md` — controls, behavior, requirements and current limitations
-
-The initial source import preserves the history of `tools/cdbg/` from
-[Cwhip commit `5a229c6`](https://github.com/chucktilbury/cwhip/commit/5a229c632a1bddd01891c0ef0776f37e34ab8290).
-The Cwhip repository remains the source of shared compiler, runtime, GTK binding
-and package APIs, consumed through the installed SDK rather than a source-tree
-dependency.
-
-## Requirements and status
-
-The current prototype uses local GDB; its friendly value inspector requires
-Python-enabled GDB with `gdb.MICommand`. It is an active proof of concept and
-compiler-testing workload, not a finished production debugger. Its CMake
-configuration requires the exact Cwhip SDK version `0.0.2` and ABI `numeric-v2`.
-Rebuild the SDK and native packages together; legacy numeric modules are not
-compatible. See [numeric migration notes](doc/BUILD.md#numeric-v2-migration).
-Project changes are recorded in [the changelog](doc/CHANGELOG.md).
+- [Debugger guide](CDBG.md)
+- [Build and installation](doc/BUILD.md)
+- [Changelog](doc/CHANGELOG.md)
 
 ## License
 
